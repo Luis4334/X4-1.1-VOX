@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MFM Orinoco – Medidor de Flujo Multifásico</title>
+  <meta name="description" content="Sistema SCADA MFM Orinoco – Industrial Vox Analyzer"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'bg-primary':   '#0d1117',
+            'bg-surface':   '#161b22',
+            'bg-card':      '#1c2430',
+            'bg-tag':       '#1a6496',
+            'accent-blue':  '#1f6fc6',
+            'accent-steel': '#4a90a4',
+            'accent-yellow':'#e6a817',
+            'accent-green': '#27a766',
+            'accent-red':   '#c0392b',
+            'accent-orange':'#e67e22',
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['Roboto Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="static/css/main.css"/>
+  <!-- Chart.js para Data Cruda -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="static/js/app.js" type="module"></script>
+</body>
+</html>
