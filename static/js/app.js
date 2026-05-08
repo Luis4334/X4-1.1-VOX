@@ -112,12 +112,24 @@ const App = {
           <inicio-prueba-page />
         </div>
 
+        <div v-if="page==='propiedades'" class="flex-1 overflow-y-auto overflow-x-hidden">
+          <propiedades-page @open-pvt="page='pvt'" />
+        </div>
+
+        <div v-if="page==='pvt'" class="flex-1 overflow-y-auto overflow-x-hidden">
+          <pvt-page @back="page='propiedades'" />
+        </div>
+
         <div v-if="page==='reportes'" class="flex-1 overflow-y-auto overflow-x-hidden flex items-center justify-center">
           <reportes-page />
         </div>
 
         <div v-if="page==='data_cruda'" class="flex-1 overflow-y-auto overflow-x-hidden">
           <data-cruda-page :proc="proc"/>
+        </div>
+
+        <div v-if="page==='prueba_progreso'" class="flex-1 overflow-y-auto overflow-x-hidden">
+          <prueba-progreso-page :proc="proc" />
         </div>
 
         <div v-if="page==='rangos'" class="flex-1 overflow-y-auto overflow-x-hidden">
@@ -157,6 +169,8 @@ const App = {
       { key: 'reportes',   icon: '📥', label: 'Reportes'         },
       { key: 'data_cruda', icon: '📊', label: 'Data Cruda'       },
       { key: 'rangos',     icon: '🔧', label: 'Conf. Instrum.'   },
+      { key: 'propiedades', icon: '🔧', label: 'Propiedades'},
+      { key: 'prueba_progreso', icon: '🔧', label: 'Prueba Progreso' },
     ];
 
     const proc = reactive({
@@ -1056,6 +1070,536 @@ const ReportesPage = {
   }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// PRUEBA-PROGRESO
+// ═══════════════════════════════════════════════════════════════
+const PruebaProgresoPage = {
+  name: 'PruebaProgresoPage',
+  props: ['proc'],
+  template: `
+  <div class="p-6 flex flex-col gap-6 w-full max-w-6xl mx-auto animation-fade-in overflow-y-auto h-full">
+
+    <!-- HEADER -->
+    <div class="bg-bg-card border border-border rounded-xl p-4 grid grid-cols-3 gap-6">
+      <div class="flex flex-col gap-1">
+        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Reporte</span><span class="text-accent-yellow font-mono">{{ data.reporte }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Fecha Inicio</span><span class="text-accent-yellow font-mono">{{ data.fechaInicio }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Hora Inicio</span><span class="text-accent-yellow font-mono">{{ data.horaInicio }}</span></div>
+      </div>
+      <div class="flex flex-col gap-1">
+        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Método</span><span class="text-accent-yellow font-mono">{{ data.metodo }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Pozo</span><span class="text-accent-yellow font-mono">{{ data.pozo }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Tiempo Trans.</span><span class="text-accent-yellow font-mono">{{ data.tiempoTranscurrido }}</span></div>
+      </div>
+      <div class="flex flex-col gap-1">
+        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">RPM Bomba</span><span class="text-accent-yellow font-mono">{{ data.rpmBomba }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">API</span><span class="text-accent-yellow font-mono">{{ data.api }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Iny. Diluente</span><span class="text-accent-yellow font-mono">{{ data.inyeccionDiluente }}</span></div>
+      </div>
+    </div>
+
+    <!-- TREND + VALORES -->
+    <div class="grid grid-cols-5 gap-5">
+      <div class="col-span-3 bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col">
+        <div class="flex items-center justify-between px-3 py-1.5 border-b border-border bg-accent-blue/10">
+          <span class="text-accent-blue font-bold text-[10px] uppercase tracking-widest">Monitor de Tendencias</span>
+          <div class="flex gap-1 flex-wrap">
+            <button v-for="v in trendVars" :key="v.key" @click="v.active=!v.active;rebuildCharts()"
+              :class="['px-1.5 py-0.5 rounded text-[8px] font-bold border transition-all',v.active?'text-white':'border-gray-700 text-gray-500']"
+              :style="v.active?{background:v.color,borderColor:v.color}:{}">{{ v.label }}</button>
+            <button @click="paused=!paused" class="px-1.5 py-0.5 text-[8px] bg-white/10 text-white border border-white/20 rounded ml-1">{{ paused?'▶':'⏸' }}</button>
+            <button @click="clearHistory" class="px-1.5 py-0.5 text-[8px] bg-accent-red/20 text-accent-red border border-accent-red/30 rounded">✕</button>
+          </div>
+        </div>
+        <div class="p-3 flex-1" style="height:270px"><canvas ref="c0"></canvas></div>
+      </div>
+      <div class="col-span-2 bg-bg-card border border-border rounded-xl overflow-hidden">
+        <div class="bg-accent-blue/10 text-center text-accent-blue font-bold py-2 text-xs border-b border-border uppercase tracking-widest">Valores Actuales</div>
+        <div class="p-3 flex flex-col gap-1">
+          <div v-for="p in params" :key="p.label" class="flex justify-between items-center border-b border-border/20 py-1.5">
+            <span class="text-xs text-white font-bold uppercase">{{ p.label }}</span>
+            <span class="text-sm font-mono font-bold text-accent-yellow">{{ p.value }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONDICIONES LINEA + ESTANDAR -->
+    <div class="grid grid-cols-2 gap-5">
+      <div class="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col">
+        <div class="flex items-center justify-between px-3 py-1.5 border-b border-border" style="background:rgba(26,100,150,0.2)">
+          <span class="text-accent-blue font-bold text-[10px] uppercase">Cond. de Línea</span>
+          <button @click="pausedL=!pausedL" class="px-1.5 py-0.5 text-[8px] bg-white/10 text-white border border-white/20 rounded">{{ pausedL?'▶':'⏸' }}</button>
+        </div>
+        <div class="p-3" style="height:220px"><canvas ref="c1"></canvas></div>
+        <div class="border-t border-border/30 overflow-y-auto" style="max-height:210px">
+          <table class="w-full text-[11px]"><tbody>
+            <tr v-for="r in condLinea" :key="r.label" class="border-b border-border/20 hover:bg-white/5">
+              <td class="px-3 py-1 text-white font-bold uppercase">{{ r.label }}</td>
+              <td class="px-3 py-1 text-right font-mono text-accent-yellow font-semibold">{{ r.value }}</td>
+            </tr>
+          </tbody></table>
+        </div>
+      </div>
+      <div class="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col">
+        <div class="flex items-center justify-between px-3 py-1.5 border-b border-border" style="background:rgba(39,167,102,0.15)">
+          <span class="text-accent-green font-bold text-[10px] uppercase">Cond. Estándar (14.7 PSIA / 15.56°C)</span>
+          <button @click="pausedS=!pausedS" class="px-1.5 py-0.5 text-[8px] bg-white/10 text-white border border-white/20 rounded">{{ pausedS?'▶':'⏸' }}</button>
+        </div>
+        <div class="p-3" style="height:220px"><canvas ref="c2"></canvas></div>
+        <div class="border-t border-border/30 overflow-y-auto" style="max-height:210px">
+          <table class="w-full text-[11px]"><tbody>
+            <tr v-for="r in condEstandar" :key="r.label" class="border-b border-border/20 hover:bg-white/5">
+              <td class="px-3 py-1 text-white font-bold uppercase">{{ r.label }}</td>
+              <td class="px-3 py-1 text-right font-mono text-accent-yellow font-semibold">{{ r.value }}</td>
+            </tr>
+          </tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-between pb-1">
+      <button class="w-10 h-10 rounded-full bg-accent-green flex items-center justify-center text-white shadow-lg hover:brightness-110 transition-all"><span>⬅️</span></button>
+    </div>
+
+  </div>
+  `,
+  setup(props) {
+    const c0 = ref(null), c1 = ref(null), c2 = ref(null);
+    const paused = ref(false), pausedL = ref(false), pausedS = ref(false);
+    let charts = [null, null, null];
+
+    const data = reactive({ reporte:'REP-2026-001', fechaInicio:'08/05/2026', horaInicio:'10:30:15', metodo:'Coriolis', pozo:'BA-145', tiempoTranscurrido:'02:15:30', rpmBomba:'1250', api:'22.5', inyeccionDiluente:'15.2' });
+
+    const trendVars = reactive([
+      { key:'LI_01',  label:'Corte Agua', color:'#27a766', active:true },
+      { key:'GAS_01', label:'GVF',        color:'#9b59b6', active:true },
+      { key:'TI_01',  label:'T.Gas',      color:'#5ac8d4', active:true },
+      { key:'PI_01',  label:'Presión',    color:'#e6a817', active:true },
+      { key:'VI_01',  label:'Viscosidad', color:'#3498db', active:false },
+    ]);
+
+    const lineaVars = [
+      { key:'LI_01', label:'Vol. Líquido', color:'#27a766' },
+      { key:'PI_01', label:'Vol. Crudo',   color:'#e6a817' },
+      { key:'FI_03', label:'Vol. Gas',     color:'#5ac8d4' },
+    ];
+    const estVars = [
+      { key:'LI_01', label:'Vol. Líq. Est', color:'#27a766' },
+      { key:'PI_01', label:'Vol. Crud. Est', color:'#e6a817' },
+      { key:'FI_03', label:'Vol. Gas Est',  color:'#5ac8d4' },
+    ];
+
+    const params = computed(() => [
+      { label:'Corte de Agua (%)',        value:(parseFloat(props.proc.LI_01)/2).toFixed(3) },
+      { label:'GVF (%)',                  value:parseFloat(props.proc.GAS_01||0).toFixed(3) },
+      { label:'Temp. Gas (ºC)',           value:parseFloat(props.proc.TI_01||0).toFixed(3) },
+      { label:'Temp. Mezcla (ºC)',        value:parseFloat(props.proc.TI_02||0).toFixed(3) },
+      { label:'Presión en Línea (PSI)',   value:parseFloat(props.proc.PI_01||0).toFixed(1) },
+      { label:'Viscosidad (cP)',          value:parseFloat(props.proc.VI_01||0).toFixed(1) },
+      { label:'RGP',                      value:(parseFloat(props.proc.FI_03||0)*12.5).toFixed(3) },
+      { label:'RGP NETO',                 value:(parseFloat(props.proc.FI_03||0)*11.2).toFixed(3) },
+    ]);
+
+    const condLinea = computed(() => [
+      { label:'Vol. Líquido (BBLS)',            value:(parseFloat(props.proc.LI_01||0)*0.1).toFixed(3) },
+      { label:'Vol. Crudo (BBLS)',              value:(parseFloat(props.proc.PI_01||0)*0.05).toFixed(3) },
+      { label:'Vol. Crudo Neto (BBLS)',         value:(parseFloat(props.proc.PI_01||0)*0.045).toFixed(3) },
+      { label:'Vol. Diluente (BBLS)',           value:'0.000' },
+      { label:'Vol. Agua (BBLS)',               value:(parseFloat(props.proc.LI_01||0)*0.02).toFixed(3) },
+      { label:'Vol. Gas Arrastrado (CF)',       value:(parseFloat(props.proc.GAS_01||0)*1.2).toFixed(3) },
+      { label:'Vol. Gas Total (MCF)',           value:(parseFloat(props.proc.FI_03||0)*0.8).toFixed(3) },
+      { label:'Tasa Est. Líquido (BPD)',        value:(parseFloat(props.proc.LI_01||0)*2.4).toFixed(3) },
+      { label:'Tasa Est. Crudo (BPD)',          value:(parseFloat(props.proc.PI_01||0)*1.2).toFixed(3) },
+      { label:'Tasa Est. Crudo Neto (BPD)',     value:(parseFloat(props.proc.PI_01||0)*1.08).toFixed(3) },
+      { label:'Tasa Est. Diluente (BPD)',       value:'0.000' },
+      { label:'Tasa Est. Agua (BPD)',           value:(parseFloat(props.proc.LI_01||0)*0.48).toFixed(3) },
+      { label:'Tasa Est. Gas Arrastrado (CFD)', value:(parseFloat(props.proc.GAS_01||0)*28.8).toFixed(3) },
+      { label:'Tasa Est. Gas Total (MCFD)',     value:(parseFloat(props.proc.FI_03||0)*19.2).toFixed(3) },
+    ]);
+
+    const condEstandar = computed(() => [
+      { label:'Vol. Líquido (BBLS)',            value:(parseFloat(props.proc.LI_01||0)*0.098).toFixed(3) },
+      { label:'Vol. Crudo (BBLS)',              value:(parseFloat(props.proc.PI_01||0)*0.049).toFixed(3) },
+      { label:'Vol. Crudo Neto (BBLS)',         value:(parseFloat(props.proc.PI_01||0)*0.044).toFixed(3) },
+      { label:'Vol. Diluente (BBLS)',           value:'0.000' },
+      { label:'Vol. Agua (BBLS)',               value:(parseFloat(props.proc.LI_01||0)*0.019).toFixed(3) },
+      { label:'Vol. Gas Arrastrado (CF)',       value:(parseFloat(props.proc.GAS_01||0)*1.15).toFixed(3) },
+      { label:'Vol. Gas Total (MCF)',           value:(parseFloat(props.proc.FI_03||0)*0.76).toFixed(3) },
+      { label:'Tasa Est. Líquido (BPD)',        value:(parseFloat(props.proc.LI_01||0)*2.35).toFixed(3) },
+      { label:'Tasa Est. Crudo (BPD)',          value:(parseFloat(props.proc.PI_01||0)*1.17).toFixed(3) },
+      { label:'Tasa Est. Crudo Neto (BPD)',     value:(parseFloat(props.proc.PI_01||0)*1.05).toFixed(3) },
+      { label:'Tasa Est. Diluente (BPD)',       value:'0.000' },
+      { label:'Tasa Est. Agua (BPD)',           value:(parseFloat(props.proc.LI_01||0)*0.46).toFixed(3) },
+      { label:'Tasa Est. Gas Arrastrado (CFD)', value:(parseFloat(props.proc.GAS_01||0)*27.6).toFixed(3) },
+      { label:'Tasa Est. Gas Total (MCFD)',     value:(parseFloat(props.proc.FI_03||0)*18.2).toFixed(3) },
+    ]);
+
+    const hist = reactive({ labels:[], data:{} });
+    const histL = reactive({ labels:[], data:{} });
+    const histS = reactive({ labels:[], data:{} });
+    trendVars.forEach(v => hist.data[v.key]=[]);
+    lineaVars.forEach(v => histL.data[v.key]=[]);
+    estVars.forEach(v => histS.data[v.key]=[]);
+
+    const chartOpts = { responsive:true, maintainAspectRatio:false, animation:{duration:0}, plugins:{legend:{display:false}},
+      scales:{ x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#9aa3af',font:{size:10},maxTicksLimit:8}},
+               y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#9aa3af',font:{size:10}}} } };
+
+    function mkDS(vars, histObj) {
+      return vars.map(v => ({ label:v.label, data:[...histObj.data[v.key]], borderColor:v.color, borderWidth:1.5, pointRadius:0, fill:false, tension:0.3, hidden:v.active===false }));
+    }
+
+    function initCharts() {
+      if(c0.value) charts[0]=new Chart(c0.value,{type:'line',data:{labels:[],datasets:mkDS(trendVars,hist)},options:chartOpts});
+      if(c1.value) charts[1]=new Chart(c1.value,{type:'line',data:{labels:[],datasets:mkDS(lineaVars,histL)},options:chartOpts});
+      if(c2.value) charts[2]=new Chart(c2.value,{type:'line',data:{labels:[],datasets:mkDS(estVars,histS)},options:chartOpts});
+    }
+
+    function rebuildCharts() {
+      if(charts[0]){ charts[0].data.datasets=mkDS(trendVars,hist); charts[0].update('none'); }
+    }
+
+    function pushPt(now) {
+      const MAX=50;
+      if(!paused.value){ hist.labels.push(now); if(hist.labels.length>MAX) hist.labels.shift(); trendVars.forEach(v=>{hist.data[v.key].push(parseFloat(props.proc[v.key]||0));if(hist.data[v.key].length>MAX)hist.data[v.key].shift();}); if(charts[0]){charts[0].data.labels=[...hist.labels];charts[0].data.datasets=mkDS(trendVars,hist);charts[0].update('none');} }
+      if(!pausedL.value){ histL.labels.push(now); if(histL.labels.length>MAX) histL.labels.shift(); lineaVars.forEach(v=>{histL.data[v.key].push(parseFloat(props.proc[v.key]||0));if(histL.data[v.key].length>MAX)histL.data[v.key].shift();}); if(charts[1]){charts[1].data.labels=[...histL.labels];charts[1].data.datasets=mkDS(lineaVars,histL);charts[1].update('none');} }
+      if(!pausedS.value){ histS.labels.push(now); if(histS.labels.length>MAX) histS.labels.shift(); estVars.forEach(v=>{histS.data[v.key].push(parseFloat(props.proc[v.key]||0));if(histS.data[v.key].length>MAX)histS.data[v.key].shift();}); if(charts[2]){charts[2].data.labels=[...histS.labels];charts[2].data.datasets=mkDS(estVars,histS);charts[2].update('none');} }
+    }
+
+    function clearHistory() {
+      hist.labels=[]; trendVars.forEach(v=>hist.data[v.key]=[]);
+      histL.labels=[]; lineaVars.forEach(v=>histL.data[v.key]=[]);
+      histS.labels=[]; estVars.forEach(v=>histS.data[v.key]=[]);
+      charts.forEach(ch=>{if(ch){ch.data.labels=[];ch.data.datasets.forEach(d=>d.data=[]);ch.update('none');}});
+    }
+
+    watch(()=>props.proc.timestamp, ()=>{ pushPt(new Date().toLocaleTimeString('es-VE')); });
+    onMounted(()=>{ nextTick(()=>initCharts()); });
+    onUnmounted(()=>{ charts.forEach(ch=>{if(ch)ch.destroy();}); });
+
+    return { data, params, condLinea, condEstandar, trendVars, c0, c1, c2, paused, pausedL, pausedS, clearHistory, rebuildCharts };
+  }
+}
+// ═══════════════════════════════════════════════════════════════
+// PROPIEDADES 
+// ═══════════════════════════════════════════════════════════════
+
+const PropiedadesPage = {
+  name: 'PropiedadesPage',
+  template: `
+  <div class="p-6 flex flex-col gap-6 w-full max-w-5xl mx-auto animation-fade-in overflow-y-auto h-full">
+    
+    <!-- SECTION 1: Referencias de Densidad Estandar -->
+    <div class="bg-bg-card border border-border shadow-lg rounded-xl overflow-hidden">
+      <div class="bg-accent-blue/20 text-center text-accent-blue font-bold py-2 text-xs border-b border-border uppercase tracking-widest">
+        Referencias de Densidad Estándar
+      </div>
+      <div class="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-bg-surface/30">
+        <div class="flex flex-col items-center text-center">
+          <label class="text-[10px] text-white font-bold uppercase mb-1">Densidad Ref Diluente</label>
+          <label class="text-[9px] text-gray-400 mb-2">(g/cm3 @ 60ºF, 14.7 PSIA)</label>
+          <input type="number" v-model="propiedades.densidadRefDiluente" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+        </div>
+        <div class="flex flex-col items-center text-center">
+          <label class="text-[10px] text-white font-bold uppercase mb-1">Densidad Ref Crudo</label>
+          <label class="text-[9px] text-gray-400 mb-2">(g/cm3 @ 60ºF, 14.7 PSIA)</label>
+          <input type="number" v-model="propiedades.densidadRefCrudo" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+        </div>
+        <div class="flex flex-col items-center text-center">
+          <label class="text-[10px] text-white font-bold uppercase mb-1">Grav Esp Gas</label>
+          <label class="text-[9px] text-gray-400 mb-2">(SG)</label>
+          <input type="number" v-model="propiedades.gravEspGas" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+        </div>
+        <div class="flex flex-col items-center text-center">
+          <label class="text-[10px] text-white font-bold uppercase mb-1">Presión Atm</label>
+          <label class="text-[9px] text-gray-400 mb-2">(PSIA)</label>
+          <input type="number" v-model="propiedades.presionAtm" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 2: Propiedades del Gas Estandar -->
+    <div class="bg-bg-card border border-border shadow-lg rounded-xl overflow-hidden">
+      <div class="bg-accent-blue/20 text-center text-accent-blue font-bold py-2 text-xs border-b border-border uppercase tracking-widest">
+        Propiedades del Gas Estándar
+      </div>
+      <div class="p-4 grid grid-cols-1 sm:grid-cols-2 gap-8 bg-bg-surface/30">
+        <div class="flex flex-col items-center text-center">
+          <label class="text-[10px] text-white font-bold uppercase mb-1">Constante de Gas (Kj/Kg/oK)</label>
+          <input type="number" v-model="propiedades.constanteGas" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+        </div>
+        <div class="flex flex-col items-center text-center">
+          <label class="text-[10px] text-white font-bold uppercase mb-1">Presión Crítica de Gas (PSIA)</label>
+          <input type="number" v-model="propiedades.presionCriticaGas" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 3: Factor de Compresibilidad del Gas Z -->
+    <div class="bg-bg-card border border-border shadow-lg rounded-xl overflow-hidden">
+      <div class="bg-accent-blue/20 text-center text-accent-blue font-bold py-2 text-xs border-b border-border uppercase tracking-widest">
+        Factor de Compresibilidad del Gas Z
+      </div>
+      <div class="p-4 bg-bg-surface/30 flex flex-col items-center gap-4">
+        <div class="grid grid-cols-2 gap-x-12 gap-y-2 w-full max-w-md">
+          <div class="flex items-center justify-between gap-4">
+            <label class="text-[10px] text-white font-bold">A</label>
+            <input type="number" v-model="propiedades.A" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <label class="text-[10px] text-white font-bold">D</label>
+            <input type="number" v-model="propiedades.D" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <label class="text-[10px] text-white font-bold">B</label>
+            <input type="number" v-model="propiedades.B" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <label class="text-[10px] text-white font-bold">E</label>
+            <input type="number" v-model="propiedades.E" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <label class="text-[10px] text-white font-bold">C</label>
+            <input type="number" v-model="propiedades.C" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <label class="text-[10px] text-white font-bold">Z</label>
+            <input type="number" v-model="propiedades.Z" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          </div>
+        </div>
+        <div class="mt-2 pt-2 border-t border-border/50 w-full flex justify-center items-center gap-4">
+          <label class="text-[10px] text-white font-bold uppercase">Densidad del Gas (Kg/m3)</label>
+          <input type="number" v-model="propiedades.densidadGas" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 4: Numero de Reynolds -->
+    <div class="bg-bg-card border border-border shadow-lg rounded-xl overflow-hidden">
+      <div class="bg-accent-blue/20 text-center text-accent-blue font-bold py-2 text-xs border-b border-border uppercase tracking-widest">
+        Número de Reynolds para Condición de Medida
+      </div>
+      <div class="p-4 grid grid-cols-2 gap-8 bg-bg-surface/30">
+        <div class="flex items-center justify-center gap-4">
+          <label class="text-[10px] text-white font-bold uppercase">Laminar</label>
+          <input type="number" v-model="propiedades.laminar" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+        </div>
+        <div class="flex items-center justify-center gap-4">
+          <label class="text-[10px] text-white font-bold uppercase">Wedge</label>
+          <input type="number" v-model="propiedades.wedge" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+        </div>
+      </div>
+    </div>
+
+    <!-- FOOTER BUTTONS -->
+    <div class="flex items-center justify-between mt-4">
+      <button class="w-10 h-10 rounded-full bg-accent-green flex items-center justify-center text-white shadow-lg hover:brightness-110 transition-all">
+        <span class="text-xl">⬅️</span>
+      </button>
+      <div class="flex gap-4">
+        <button @click="openPvt" class="px-8 py-2 bg-gray-300 hover:bg-white text-gray-800 font-bold rounded shadow-md border-b-4 border-gray-500 active:border-b-0 active:translate-y-1 transition-all">
+          PVT
+        </button>
+        <button @click="cargarDatos" class="px-8 py-2 bg-gray-300 hover:bg-white text-gray-800 font-bold rounded shadow-md border-b-4 border-gray-500 active:border-b-0 active:translate-y-1 transition-all">
+          Guardar
+        </button>
+      </div>
+    </div>
+
+    <!-- PVT DATA MODAL -->
+    <pvt-data-modal v-if="showPvtModal" @close="showPvtModal=false" @save="onPvtModalSave" />
+
+  </div>
+  `,
+  setup(props, { emit }) {
+    const propiedades = reactive({
+      densidadRefDiluente: 0.0,
+      densidadRefCrudo: 0.0,
+      gravEspGas: 0.0,
+      presionAtm: 0.0,
+      constanteGas: 0.0,
+      presionCriticaGas: 0.0,
+      A: 0.0, B: 0.0, C: 0.0, D: 0.0, E: 0.0, Z: 0.0,
+      densidadGas: 0.0,
+      laminar: 0.0,
+      wedge: 0.0
+    });
+
+    const showPvtModal = ref(false);
+
+    function openPvt() { emit('open-pvt'); }
+    function cargarDatos() { showPvtModal.value = true; }
+    function onPvtModalSave(data) {
+      console.log("Datos PVT recibidos:", data);
+      // Aquí se podrían actualizar los valores en el estado global o enviar a API
+    }
+
+    return { propiedades, openPvt, cargarDatos, showPvtModal, onPvtModalSave };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PVT PAGE
+// ═══════════════════════════════════════════════════════════════
+const PvtPage = {
+  name: 'PvtPage',
+  emits: ['back'],
+  template: `
+  <div class="p-6 flex flex-col gap-6 w-full max-w-5xl mx-auto animation-fade-in overflow-y-auto h-full">
+    
+    <!-- SECTION 1: Cálculos de PVT -->
+    <div class="bg-bg-card border border-border shadow-lg rounded-xl overflow-hidden">
+      <div class="bg-accent-blue/20 text-center text-accent-blue font-bold py-2 text-xs border-b border-border uppercase tracking-widest">
+        Cálculos de PVT
+      </div>
+      <div class="p-6 grid grid-cols-1 sm:grid-cols-3 gap-8 bg-bg-surface/30">
+        <div class="flex flex-col items-center text-center">
+          <label class="text-[10px] text-white font-bold uppercase mb-1">Temp. Yacimiento (oF)</label>
+          <input type="number" v-model="pvt.tempYac" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+        </div>
+        <div class="flex flex-col items-center text-center">
+          <label class="text-[10px] text-white font-bold uppercase mb-1">RSO</label>
+          <input type="number" v-model="pvt.rso" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+        </div>
+        <div class="flex flex-col items-center text-center">
+          <label class="text-[10px] text-white font-bold uppercase mb-1">BO</label>
+          <input type="number" v-model="pvt.bo" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 2: Balance de Masa -->
+    <div class="bg-bg-card border border-border shadow-lg rounded-xl overflow-hidden">
+      <div class="bg-accent-blue/20 text-center text-accent-blue font-bold py-2 text-xs border-b border-border uppercase tracking-widest">
+        Balance de Masa
+      </div>
+      <div class="overflow-x-auto bg-bg-surface/30">
+        <table class="w-full text-xs text-left border-collapse">
+          <thead>
+            <tr class="border-b border-border/50 bg-white/5">
+              <th class="p-3 font-bold text-gray-400 uppercase tracking-wider">Parámetro</th>
+              <th class="p-3 font-bold text-gray-400 uppercase tracking-wider text-center">Reales</th>
+              <th class="p-3 font-bold text-gray-400 uppercase tracking-wider text-center">Teórico</th>
+              <th class="p-3 font-bold text-gray-400 uppercase tracking-wider text-center">Error %</th>
+            </tr>
+          </thead>
+          <tbody class="text-white">
+            <tr v-for="row in balanceRows" :key="row.label" class="border-b border-border/30 hover:bg-white/5 transition-colors">
+              <td class="p-3 font-semibold">{{ row.label }}</td>
+              <td class="p-3 text-center">
+                <input type="number" v-model="pvt[row.key+'_real']" class="w-20 bg-bg-primary border border-border rounded px-1 text-xs text-center outline-none focus:border-accent-yellow" />
+              </td>
+              <td class="p-3 text-center">
+                <input type="number" v-model="pvt[row.key+'_teo']" class="w-20 bg-bg-primary border border-border rounded px-1 text-xs text-center outline-none focus:border-accent-yellow" />
+              </td>
+              <td class="p-3 text-center text-accent-yellow font-mono">{{ calcError(pvt[row.key+'_real'], pvt[row.key+'_teo']) }}%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- FOOTER BUTTONS -->
+    <div class="flex items-center justify-between mt-4">
+      <button @click="$emit('back')" class="w-10 h-10 rounded-full bg-accent-green flex items-center justify-center text-white shadow-lg hover:brightness-110 transition-all">
+        <span class="text-xl">⬅️</span>
+      </button>
+      <div class="flex justify-center flex-1">
+         <button @click="cargarDatos" class="px-8 py-2 bg-gray-300 hover:bg-white text-gray-800 font-bold rounded shadow-md border-b-4 border-gray-500 active:border-b-0 active:translate-y-1 transition-all">
+          Cargar Datos PVT
+        </button>
+      </div>
+    </div>
+
+    <!-- PVT DATA MODAL -->
+    <pvt-data-modal v-if="showPvtModal" @close="showPvtModal=false" @save="onPvtModalSave" />
+
+  </div>
+  `,
+  setup() {
+    const pvt = reactive({
+      tempYac: 0, rso: 0, bo: 0,
+      apiForm_real: 0, apiForm_teo: 0,
+      apiMez_real: 0, apiMez_teo: 0,
+      apiDil_real: 0, apiDil_teo: 0,
+      qDil_real: 0, qDil_teo: 0,
+      qNet_real: 0, qNet_teo: 0,
+      qNetDil_real: 0, qNetDil_teo: 0,
+      qAgua_real: 0, qAgua_teo: 0,
+      qTotal_real: 0, qTotal_teo: 0
+    });
+
+    const balanceRows = [
+      { label: 'API Formación @60ºF', key: 'apiForm' },
+      { label: 'API Mezcla @60ºF',     key: 'apiMez'  },
+      { label: 'API Diluente @60ºF',   key: 'apiDil'  },
+      { label: 'Q Diluente BBDL',      key: 'qDil'    },
+      { label: 'Q Neto BBDL',          key: 'qNet'    },
+      { label: 'Q Neto + Diluente BBDL', key: 'qNetDil' },
+      { label: 'Q Agua BBDL',          key: 'qAgua'   },
+      { label: 'Q Total BBDL',         key: 'qTotal'  }
+    ];
+
+    const showPvtModal = ref(false);
+
+    function calcError(real, teo) {
+      if (!teo || teo === 0) return '0.00';
+      const err = ((real - teo) / teo) * 100;
+      return err.toFixed(2);
+    }
+
+    function cargarDatos() { showPvtModal.value = true; }
+    
+    function onPvtModalSave(data) {
+      pvt.rso = data.rso;
+      pvt.bo = data.bo;
+    }
+
+    return { pvt, balanceRows, calcError, cargarDatos, showPvtModal, onPvtModalSave };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PVT DATA MODAL (Popup)
+// ═══════════════════════════════════════════════════════════════
+const PvtDataModal = {
+  name: 'PvtDataModal',
+  emits: ['close', 'save'],
+  template: `
+  <div class="modal-overlay" @click.self="$emit('close')">
+    <div class="bg-[#d1e8f7] border-2 border-[#1a6496] p-6 rounded shadow-2xl w-80 animation-scale-in">
+      <div class="text-center text-[#1a6496] font-bold text-sm mb-6 tracking-widest uppercase">
+        DATOS PVT
+      </div>
+      <div class="flex flex-col gap-4 mb-6 px-4">
+        <div class="flex items-center justify-between gap-4">
+          <label class="text-xs font-bold text-gray-800">RSO</label>
+          <input type="number" v-model="form.rso" class="w-32 bg-white border border-gray-300 rounded px-2 py-1 text-xs text-center text-gray-800 outline-none focus:border-accent-blue" />
+        </div>
+        <div class="flex items-center justify-between gap-4">
+          <label class="text-xs font-bold text-gray-800">BO</label>
+          <input type="number" v-model="form.bo" class="w-32 bg-white border border-gray-300 rounded px-2 py-1 text-xs text-center text-gray-800 outline-none focus:border-accent-blue" />
+        </div>
+      </div>
+      <div class="flex justify-center">
+        <button @click="save" class="px-10 py-1.5 bg-gray-200 hover:bg-white text-gray-800 font-bold rounded shadow-md border border-gray-400 active:translate-y-0.5 transition-all uppercase text-xs">
+          PVT
+        </button>
+      </div>
+    </div>
+  </div>
+  `,
+  setup(props, { emit }) {
+    const form = reactive({ rso: 0.0, bo: 0.0 });
+    function save() {
+      emit('save', { ...form });
+      emit('close');
+    }
+    return { form, save };
+  }
+}
+
 // ── Mount ────────────────────────────────────────────────────
 const app = createApp(App);
 app.component('proceso-page',   ProcesoPage);
@@ -1063,5 +1607,9 @@ app.component('inicio-prueba-page', InicioPruebaPage);
 app.component('reportes-page',  ReportesPage);
 app.component('data-cruda-page',DataCrudaPage);
 app.component('pid-modal',      PidModal);
+app.component('prueba-progreso-page',PruebaProgresoPage);
+app.component('propiedades-page',PropiedadesPage);
+app.component('pvt-page', PvtPage);
+app.component('pvt-data-modal', PvtDataModal);
 app.component('rangos-page',    RangosPage);
 app.mount('#app');
