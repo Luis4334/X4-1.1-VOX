@@ -1,32 +1,84 @@
 """
-MFM ORINOCO – Backend Flask
-============================
-Gestiona DB x4 en XAMPP, lógica PID, WebSockets (500ms)
+MFM ORINOCO – Backend Flask + SoftPLC "Todo en Uno"
+=====================================================
+Arquitectura de Memoria Compartida:
+  - Hilo 1 (ScanEngine): ciclo PLC a 100 ms — lee/escribe el objeto global V
+  - Hilo 2 (websocket_updater): lee V pasivamente cada 500 ms y emite vía SocketIO
+  - Hilo Flask/SocketIO: sirve la API REST y WebSocket al frontend
+
 Inicia con: python app.py
 """
 
+import sys
+import os
 import time
-import math
-import random
 import threading
+import csv
+import io
+import logging
 from datetime import datetime
-from flask import Flask, jsonify, request, send_from_directory
+
+from flask import Flask, jsonify, request, send_from_directory, Response
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 import mysql.connector
 from mysql.connector import pooling
 
 # ─────────────────────────────────────────────────────────────
-# Flask + SocketIO setup
+# PUENTE: inyectar python_migration en sys.path.
+# Necesario para que las fases del motor (fase1..fase9, config,
+# plc_timers, etc.) se resuelvan entre sí con imports relativos
+# durante el runtime, sin modificar esos archivos.
+# ─────────────────────────────────────────────────────────────
+_MIGRATION_DIR = os.path.join(os.path.dirname(__file__), "python_migration")
+if _MIGRATION_DIR not in sys.path:
+    sys.path.insert(0, _MIGRATION_DIR)
+
+# Importar usando notación de paquete para satisfacer el linter.
+# python_migration/ ya contiene __init__.py, por lo que es un
+# paquete Python válido reconocido por el analizador estático.
+from python_migration.global_vars import V                          # Memoria compartida única
+from python_migration.scan_engine import ScanEngine, PHASE_REGISTRY # Motor de ciclos + fases
+
+# ─────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger("orinoco.web")
+
+# ─────────────────────────────────────────────────────────────
+# Flask + SocketIO
 # ─────────────────────────────────────────────────────────────
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.secret_key = "mfm_orinoco_2024"
 CORS(app, resources={r"/*": {"origins": "*"}})
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
+import json
+HART_CONFIG_FILE = "hart_config.json"
+HART_CONFIG = {
+    "mode": "tcp",
+    "ip": "192.168.255.1",
+    "port": 502,
+    "com_port": "COM3",
+    "baudrate": 9600,
+    "slave_id": 1,
+    "start_address": 618
+}
+try:
+    if os.path.exists(HART_CONFIG_FILE):
+        with open(HART_CONFIG_FILE, "r") as f:
+            HART_CONFIG.update(json.load(f))
+except Exception:
+    pass
+
 
 # ─────────────────────────────────────────────────────────────
-# MySQL Pool (XAMPP → puerto 3306, user=root, pass=vacío)
+# MySQL Pool (XAMPP → puerto 3306)
 # ─────────────────────────────────────────────────────────────
 DB_CONFIG = dict(
     host="localhost", port=3306,
@@ -37,9 +89,9 @@ DB_CONFIG = dict(
 
 try:
     db_pool = pooling.MySQLConnectionPool(pool_name="mfm", pool_size=5, **DB_CONFIG)
-    print("✅  MySQL pool OK")
+    logger.info("✅  MySQL pool OK")
 except Exception as _e:
-    print(f"⚠️  MySQL no disponible: {_e}")
+    logger.warning(f"⚠️  MySQL no disponible: {_e}")
     db_pool = None
 
 
@@ -64,7 +116,7 @@ def db_exec(sql, params=None, fetch=True):
         conn.commit()
         return cur.lastrowid
     except Exception as e:
-        print(f"  DB error: {e}")
+        logger.debug(f"DB error: {e}")
         if conn and not fetch:
             try: conn.rollback()
             except Exception: pass
@@ -75,276 +127,148 @@ def db_exec(sql, params=None, fetch=True):
 
 
 # ─────────────────────────────────────────────────────────────
-# PID Controller
+# HILO 1: Motor del SoftPLC (100 ms)
+# El ScanEngine ya gestiona su propio hilo internamente mediante
+# start() → _scan_loop() en modo daemon. Solo lo instanciamos y
+# registramos las fases antes de arrancarlo.
 # ─────────────────────────────────────────────────────────────
-class PIDController:
-    """PID discreto con anti-windup y transferencia bumpless."""
-
-    def __init__(self, tag, Kp=1.0, Ki=0.1, Kd=0.01,
-                 out_min=0.0, out_max=100.0, dt=0.5):
-        self.instrumento = tag
-        self.Kp, self.Ki, self.Kd = Kp, Ki, Kd
-        self.out_min, self.out_max = out_min, out_max
-        self.dt   = dt
-
-        self.SP   = 0.0
-        self.PV   = 0.0
-        self.CV   = 0.0
-        self.CV_manual = 0.0
-        self.modo = "Manual"   # "Auto" | "Manual"
-        self.activo = True
-
-        self._integral  = 0.0
-        self._prev_pv   = 0.0
-        self._prev_error = 0.0
-
-    # Transferencia bumpless: al cambiar modo evita salto
-    def reset(self):
-        self._integral   = self.CV
-        self._prev_pv    = self.PV
-        self._prev_error = 0.0
-
-    def compute(self, pv: float) -> float:
-        self.PV = pv
-        if self.modo == "Manual":
-            self.CV = max(self.out_min, min(self.out_max, self.CV_manual))
-            return self.CV
-
-        error = self.SP - pv
-        P = self.Kp * error
-        self._integral += error * self.dt
-        I  = self.Ki * self._integral
-        D  = -self.Kd * (pv - self._prev_pv) / max(self.dt, 1e-6)
-
-        out = P + I + D
-        # Anti-windup por clamping
-        if out > self.out_max:
-            out = self.out_max
-            self._integral -= error * self.dt
-        elif out < self.out_min:
-            out = self.out_min
-            self._integral -= error * self.dt
-
-        self._prev_pv = pv
-        self._prev_error = error
-        self.CV = round(out, 3)
-        return self.CV
-
-    def to_dict(self):
-        return {
-            "instrumento": self.instrumento,
-            "modo":  self.modo,
-            "PV":    round(self.PV, 3),
-            "CV":    round(self.CV, 3),
-            "SP":    round(self.SP, 3),
-            "CV_manual": round(self.CV_manual, 3),
-            "Kp":    self.Kp,
-            "Ki":    self.Ki,
-            "Kd":    self.Kd,
-        }
+plc_engine = ScanEngine()
+plc_engine.register_phases(PHASE_REGISTRY)
 
 
 # ─────────────────────────────────────────────────────────────
-# Instancias PID independientes
+# Carga de configuración DAQ desde BD
+# Se ejecuta al iniciar: restaura el último puerto/baudrate guardado.
 # ─────────────────────────────────────────────────────────────
-pid_presion = PIDController("PIC-01", Kp=1.2, Ki=0.08, Kd=0.05)
-pid_nivel   = PIDController("LIC-01", Kp=1.0, Ki=0.10, Kd=0.02)
-
-PID_MAP = {"PIC-01": pid_presion, "LIC-01": pid_nivel}
-
-_lazos_habilitados = True
-
-
-def load_pid_from_db():
-    rows = db_exec("SELECT * FROM configuracion_actual")
+def _load_daq_connection_from_db():
+    """Lee la tabla daq_connection_config y aplica los parámetros al módulo modbus_daq."""
+    import python_migration.modbus_daq as _mdaq
+    rows = db_exec("SELECT * FROM daq_connection_config WHERE id=1")
     if not rows:
-        print("  (Sin datos en configuracion_actual – usando defaults)")
+        logger.info("🔌 DAQ: usando parámetros por defecto (tabla vacía)")
         return
-    for r in rows:
-        tag = r.get("instrumento")
-        if tag not in PID_MAP:
-            continue
-        pid = PID_MAP[tag]
-        pid.Kp = float(r.get("Kp") or pid.Kp)
-        pid.Ki = float(r.get("Ki") or pid.Ki)
-        pid.Kd = float(r.get("Kd") or pid.Kd)
-        pid.SP = float(r.get("SP") or 0)
-        pid.CV = float(r.get("CV") or 0)
-        pid.PV = float(r.get("PV") or 0)
-        pid.CV_manual = float(r.get("CV_manual") or 0)
-        pid.modo = r.get("modo", "Manual")
-        pid._integral = pid.CV
-        pid._prev_pv  = pid.PV
-        print(f"  ✅  {tag}: modo={pid.modo}  SP={pid.SP}  Kp={pid.Kp}")
+    r = rows[0]
+    _mdaq.DAQ_PORT     = str(r.get("port",     _mdaq.DAQ_PORT))
+    _mdaq.DAQ_BAUDRATE = int(r.get("baudrate", _mdaq.DAQ_BAUDRATE))
+    _mdaq.DAQ_SLAVE_ID = int(r.get("slave_id", _mdaq.DAQ_SLAVE_ID))
+    timeout_ms = int(r.get("timeout_ms", 80))
+    _mdaq.DAQ_TIMEOUT  = timeout_ms / 1000.0
+    logger.info(f"✅ DAQ config cargada: {_mdaq.DAQ_PORT} @ {_mdaq.DAQ_BAUDRATE} baud, slave={_mdaq.DAQ_SLAVE_ID}")
 
 
 # ─────────────────────────────────────────────────────────────
-# Simulación de proceso REALISTA (reemplazar con Modbus real)
+# HILO 2: WebSocket Updater (500 ms)
+# Lee pasivamente el objeto V (memoria compartida) y emite los
+# datos de proceso al frontend. NO escribe en V.
 # ─────────────────────────────────────────────────────────────
-_t = 0.0
-
-# Estado persistente del proceso (valores iniciales)
-_state = {
-    "level":    50.0,     # % nivel del separador
-    "pressure": 95.0,     # PSIG presión del separador
-}
-
-# Parámetros del modelo físico
-INFLOW_LIQUID  = 1.2     # %/s entrada de líquido al separador
-INFLOW_GAS    = 0.8     # PSIG/s acumulación de gas si sale cerrada
-MAX_DRAIN_LIQ  = 2.0     # %/s máximo drenaje de líquido con válvula 100%
-MAX_VENT_GAS   = 1.5     # PSIG/s máximo venteo de gas con válvula 100%
-DT             = 0.5     # intervalo de simulación (s)
-
-# ──────────────────────────────────────────────────────────────
-# Caché del último PV escrito por comunicacion-modbus.py
-# ──────────────────────────────────────────────────────────────
-_pv_cache: dict = {}   # {"PIC-01": float, "LIC-01": float}
-_pv_cache_lock = threading.Lock()
-
-
-def _refresh_pv_cache():
+def websocket_updater():
     """
-    Lee la tabla configuracion_actual y actualiza la caché de PV.
-    Este valor fue escrito por comunicacion-modbus.py con el promedio
-    del último lote de muestras → actúa como FILTRO entre DAQ y PID.
+    Publica el estado del proceso hacia el frontend cada 500 ms.
+    Lee variables directamente del objeto global V del SoftPLC.
+
+    Mapeo de variables V → Tags de display:
+      V.r_Q_gas       → FI_03   (Caudal Gas Vortex)
+      V.r_P_Gas       → PI_01   (Presión Gas)
+      V.r_T_Oil_C     → TI_01   (Temperatura Crudo)
+      V.r_LIT_001     → LI_01   (Nivel Separador)
+      V.r_PDT_01      → PDI_01  (DP Laminar Alta)
+      V.r_PDT_02      → PDI_02  (DP Wedge)
+      V.r_PDT_03      → PDI_03  (DP Laminar Baja)
+      V.r_T_Gas       → TI_02   (Temperatura Gas)
+      V.r_Q_GAT       → GAS_01  (Caudal GAT)
+      V.r_WC          → VI_01   (Corte de agua)
     """
-    rows = db_exec("SELECT instrumento, PV FROM configuracion_actual")
-    if not rows:
-        return
-    with _pv_cache_lock:
-        for r in rows:
-            _pv_cache[r["instrumento"]] = float(r["PV"] or 0.0)
+    logger.info("  WebSocket Updater activo (500 ms)")
+    loop_count = 0
 
-
-
-def simulate():
-    global _t
-    _t += DT
-    t = _t
-    n = random.gauss
-
-    # ── NIVEL (LI-01) ──
-    # Líquido entra al separador a tasa constante.
-    # LCV-01 drena líquido proporcionalmente a su apertura (CV).
-    lcv_pct   = pid_nivel.CV / 100.0        # 0.0 a 1.0
-    liq_in    = INFLOW_LIQUID * DT          # lo que entra
-    liq_out   = MAX_DRAIN_LIQ * lcv_pct * DT   # lo que sale por LCV-01
-    _state["level"] += (liq_in - liq_out) + n(0, 0.05)
-    _state["level"]  = max(0.0, min(100.0, _state["level"]))
-    li01 = round(_state["level"], 2)
-
-    # ── PRESIÓN (PI-01) ──
-    # Gas entra al separador (acumulación natural).
-    # PCV-01 ventea gas proporcionalmente a su apertura (CV).
-    pcv_pct   = pid_presion.CV / 100.0
-    gas_in    = INFLOW_GAS * DT
-    gas_out   = MAX_VENT_GAS * pcv_pct * DT
-    _state["pressure"] += (gas_in - gas_out) + n(0, 0.1)
-    _state["pressure"]  = max(0.0, min(200.0, _state["pressure"]))
-    pi01 = round(_state["pressure"], 2)
-
-    # ── Variables secundarias (no controladas, oscilan naturalmente) ──
-    fi03 = round(0.64 + 0.15 * math.sin(t/20) + n(0, 0.01), 3)
-    ti01 = round(18.75 + 1.5 * math.sin(t/30) + n(0, 0.05), 2)
-    pdi01 = round(313.53 + 10.0 * math.sin(t/25) + n(0, 1.0), 2)
-    pdi03 = 0.0
-    pdi02_dp   = round(7.81  + 0.5 * math.sin(t/18) + n(0, 0.05), 2)
-    pdi02_psig = round(37.50 + 1.0 * math.sin(t/18) + n(0, 0.02), 2)
-    ti02  = round(9.38  + 0.5 * math.sin(t/20) + n(0, 0.02), 2)
-    gas01 = round(25.0  + 2.0 * math.sin(t/12) + n(0, 0.1), 2)
-    vi01  = round(0.10  + 0.02 * math.sin(t/40) + n(0, 0.002), 3)
-
-    return {
-        "FI_03":       fi03,
-        "PI_01":       pi01,
-        "TI_01":       ti01,
-        "LI_01":       li01,
-        "PDI_01":      pdi01,
-        "PDI_03":      pdi03,
-        "PDI_02_dp":   pdi02_dp,
-        "PDI_02_psig": pdi02_psig,
-        "TI_02":       ti02,
-        "GAS_01":      gas01,
-        "VI_01":       vi01,
-        "timestamp":   datetime.now().strftime("%H:%M:%S"),
-    }
-
-
-# ─────────────────────────────────────────────────────────────
-# Loop de control (cada 500 ms)
-# ─────────────────────────────────────────────────────────────
-def control_loop():
-    loop_count   = 0
-    pv_refresh_n = 0  # contador para refrescar caché de PV cada 2 ciclos (~1s)
     while True:
         try:
-            readings = simulate()
+            # ── Leer datos de proceso desde V (solo lectura) ──
+            process_data = {
+                "FI_03":       round(V.r_Q_gas,      3),
+                "PI_01":       round(V.r_P_Gas,       2),
+                "TI_01":       round(V.r_T_Oil_C,     2),
+                "LI_01":       round(V.r_LIT_001,     2),
+                "PDI_01":      round(V.r_PDT_01,      2),
+                "PDI_02_dp":   round(V.r_PDT_02,      2),
+                "PDI_03":      round(V.r_PDT_03,      2),
+                "TI_02":       round(V.r_T_Gas,       2),
+                "GAS_01":      round(V.r_Q_GAT,       2),
+                "VI_01":       round(V.r_WC,           3),
+                "Q_Crudo":     round(V.r_Q_Crudo,     3),
+                "Q_W":         round(V.r_Q_W,          3),
+                "Q_gas_STD":   round(V.r_Q_gas_STD,   3),
+                "GOR":         round(V.r_GOR,          2),
+                "WC_sc":       round(V.r_WC_sc,        3),
+                "GVF":         round(V.r_GVF,          3),
+                "timestamp":   datetime.now().strftime("%H:%M:%S"),
+            }
 
-            # ─── FILTRO MODBUS ────────────────────────────────
-            # Si comunicacion-modbus.py está corriendo, sus promedios
-            # de lote sobrescriben el PV simulado → fuente de verdad.
-            pv_refresh_n += 1
-            if pv_refresh_n >= 2:
-                pv_refresh_n = 0
-                _refresh_pv_cache()
+            # ── Estado de los lazos PID del SoftPLC ──
+            pid_nivel_data = {
+                "instrumento": "LIC-01",
+                "modo":        "Auto" if not V.b_MAN_LC else "Manual",
+                "PV":          round(V.r_LIT_001, 2),
+                "SP":          round(V.r_LEVEL_PID_SP, 2),
+                "CV":          round(V.fb_LEVEL_PID_r_CVEU, 2),
+                "CV_manual":   round(V.r_LEVEL_PID_03_CVOverride, 2),
+                "Kp":          round(V.r_LEVEL_PID_03_KP, 4),
+                "Ki":          round(V.r_LEVEL_PID_03_KI, 4),
+                "Kd":          round(V.r_LEVEL_PID_03_KD, 4),
+            }
 
-            with _pv_cache_lock:
-                # PIC-01 → PI_01
-                if "PIC-01" in _pv_cache and _pv_cache["PIC-01"] > 0:
-                    readings["PI_01"] = round(_pv_cache["PIC-01"], 2)
-                # LIC-01 → LI_01
-                if "LIC-01" in _pv_cache and _pv_cache["LIC-01"] > 0:
-                    readings["LI_01"] = round(_pv_cache["LIC-01"], 2)
-            # ─────────────────────────────────────────────────
+            pid_presion_data = {
+                "instrumento": "PIC-01",
+                "modo":        "Auto" if not V.b_MAN_PC else "Manual",
+                "PV":          round(V.r_P_Gas, 2),
+                "SP":          round(V.r_PRESS_PID_SP, 2),
+                "CV":          round(V.fb_PRESS_PID_r_CVEU, 2),
+                "CV_manual":   round(V.r_PRESS_PID_03_CVOverride, 2),
+                "Kp":          round(V.r_PRESS_PID_03_KP, 4),
+                "Ki":          round(V.r_PRESS_PID_03_KI, 4),
+                "Kd":          round(V.r_PRESS_PID_03_KD, 4),
+            }
 
-            if _lazos_habilitados:
-                pid_presion.compute(readings["PI_01"])
-                pid_nivel.compute(readings["LI_01"])
+            # ── Estado del Motor PLC ──
+            plc_status = plc_engine.get_status()
 
-            readings["PCV_01_cv"] = pid_presion.CV
-            readings["LCV_01_cv"] = pid_nivel.CV
+            # ── Emitir todo al frontend vía SocketIO ──
+            socketio.emit("process_data", {
+                "process":      process_data,
+                "pid_nivel":    pid_nivel_data,
+                "pid_presion":  pid_presion_data,
+                "plc":          plc_status,
+                "lazos_habilitados": not V.b_DESHABILITA_PID,
+            })
 
-            # ─── ESCRIBIR CV/PV a DB para que comunicacion-modbus.py ───
-            # pueda leer la posición real de las válvulas.
-            # Sin esto, el modelo físico del DAQ no ve las correcciones
-            # del PID y el lazo queda ABIERTO.
-            if pv_refresh_n == 0:  # cada ~1s (reutiliza el contador)
-                db_exec(
-                    "UPDATE configuracion_actual SET CV=%s, PV=%s WHERE instrumento=%s",
-                    (pid_presion.CV, pid_presion.PV, "PIC-01"), fetch=False
-                )
-                db_exec(
-                    "UPDATE configuracion_actual SET CV=%s, PV=%s WHERE instrumento=%s",
-                    (pid_nivel.CV, pid_nivel.PV, "LIC-01"), fetch=False
-                )
-
-            # Guardar historico en DB cada 5 segundos (10 * 500ms)
+            # ── Guardar histórico en DB cada 5 s (10 × 500 ms) ──
             loop_count += 1
             if loop_count >= 10:
                 loop_count = 0
-                instrumentos = ["FI_03", "PI_01", "TI_01", "LI_01", "PDI_01", "PDI_03", "PDI_02_dp", "TI_02", "GAS_01", "VI_01"]
-                vals = []
-                for inst in instrumentos:
-                    vals.extend([inst.replace('_', '-'), float(readings.get(inst, 0))])
-                placeholders = ", ".join(["(%s, %s)"] * len(instrumentos))
-                db_exec(f"INSERT INTO lecturas_proceso (instrumento, valor) VALUES {placeholders}", tuple(vals), fetch=False)
+                _persist_lecturas(process_data)
 
-            socketio.emit("process_data", {
-                "process":    readings,
-                "pid_presion": pid_presion.to_dict(),
-                "pid_nivel":   pid_nivel.to_dict(),
-                "lazos_habilitados": _lazos_habilitados,
-            })
         except Exception as e:
-            print(f"  Loop error: {e}")
+            logger.error(f"WebSocket Updater error: {e}")
 
         time.sleep(0.5)
 
 
+def _persist_lecturas(data: dict):
+    """Inserta snapshot de proceso en lecturas_proceso (cada ~5 s)."""
+    tags = ["FI_03", "PI_01", "TI_01", "LI_01", "PDI_01", "PDI_03",
+            "PDI_02_dp", "TI_02", "GAS_01", "VI_01"]
+    vals = []
+    for t in tags:
+        vals.extend([t.replace("_", "-"), float(data.get(t, 0))])
+    placeholders = ", ".join(["(%s, %s)"] * len(tags))
+    db_exec(
+        f"INSERT INTO lecturas_proceso (instrumento, valor) VALUES {placeholders}",
+        tuple(vals), fetch=False
+    )
+
 
 # ─────────────────────────────────────────────────────────────
-# Rutas HTTP
+# Rutas HTTP estáticas
 # ─────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -354,45 +278,130 @@ def index():
 
 @app.route("/api/status")
 def api_status():
-    return jsonify({"ok": True, "ts": datetime.now().isoformat()})
+    return jsonify({
+        "ok":  True,
+        "ts":  datetime.now().isoformat(),
+        "plc": plc_engine.get_status(),
+    })
 
 
-# ── PID ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# API DE COMANDOS MANUALES — Escritura directa en V
+# El operador web interactúa con el SoftPLC a través de estas
+# rutas. Flask simplemente sobrescribe el valor en la memoria
+# compartida; el ScanEngine lo leerá en el próximo ciclo.
+# ─────────────────────────────────────────────────────────────
 
-@app.route("/api/pid/<loop_id>", methods=["GET"])
-def get_pid(loop_id):
-    tag = loop_id.upper().replace("_", "-")
-    if tag not in PID_MAP:
-        return jsonify({"error": "Not found"}), 404
-    return jsonify(PID_MAP[tag].to_dict())
+@app.route("/api/pid/<tag>", methods=["GET"])
+def get_pid(tag):
+    """Devuelve el estado actual de un lazo PID desde la memoria V."""
+    tag = tag.upper().replace("_", "-")
+    if tag == "LIC-01":
+        return jsonify({
+            "instrumento": "LIC-01",
+            "modo":       "Auto" if not V.b_MAN_LC else "Manual",
+            "PV":         round(V.r_LIT_001, 2),
+            "SP":         round(V.r_LEVEL_PID_SP, 2),
+            "CV":         round(V.fb_LEVEL_PID_r_CVEU, 2),
+            "CV_manual":  round(V.r_LEVEL_PID_03_CVOverride, 2),
+            "Kp":         V.r_LEVEL_PID_03_KP,
+            "Ki":         V.r_LEVEL_PID_03_KI,
+            "Kd":         V.r_LEVEL_PID_03_KD,
+        })
+    elif tag == "PIC-01":
+        return jsonify({
+            "instrumento": "PIC-01",
+            "modo":       "Auto" if not V.b_MAN_PC else "Manual",
+            "PV":         round(V.r_P_Gas, 2),
+            "SP":         round(V.r_PRESS_PID_SP, 2),
+            "CV":         round(V.fb_PRESS_PID_r_CVEU, 2),
+            "CV_manual":  round(V.r_PRESS_PID_03_CVOverride, 2),
+            "Kp":         V.r_PRESS_PID_03_KP,
+            "Ki":         V.r_PRESS_PID_03_KI,
+            "Kd":         V.r_PRESS_PID_03_KD,
+        })
+    return jsonify({"error": "Tag no encontrado. Use LIC-01 o PIC-01"}), 404
 
 
-@app.route("/api/pid/<loop_id>", methods=["POST"])
-def post_pid(loop_id):
-    tag = loop_id.upper().replace("_", "-")
-    if tag not in PID_MAP:
-        return jsonify({"error": "Not found"}), 404
-    d   = request.get_json() or {}
-    pid = PID_MAP[tag]
-    prev_modo = pid.modo
+@app.route("/api/pid/<tag>", methods=["POST"])
+def post_pid(tag):
+    """
+    Envía comandos de operador al SoftPLC sobrescribiendo V directamente.
+    Payload JSON soportado:
+      { "modo": "Auto"|"Manual", "SP": float, "CV_manual": float,
+        "Kp": float, "Ki": float, "Kd": float }
+    """
+    tag = tag.upper().replace("_", "-")
+    d = request.get_json() or {}
 
-    if "Kp" in d: pid.Kp = float(d["Kp"])
-    if "Ki" in d: pid.Ki = float(d["Ki"])
-    if "Kd" in d: pid.Kd = float(d["Kd"])
-    if "SP" in d: pid.SP = float(d["SP"])
-    if "CV_manual" in d: pid.CV_manual = float(d["CV_manual"])
-    if "modo" in d and d["modo"] != prev_modo:
-        pid.modo = d["modo"]
-        pid.reset()
+    if tag == "LIC-01":
+        if "modo" in d:
+            V.b_MAN_LC = (d["modo"] == "Manual")
+        if "SP"       in d: V.r_LEVEL_PID_SP              = float(d["SP"])
+        if "CV_manual" in d: V.r_LEVEL_PID_03_CVOverride  = float(d["CV_manual"])
+        if "Kp"       in d: V.r_LEVEL_PID_03_KP           = float(d["Kp"])
+        if "Ki"       in d: V.r_LEVEL_PID_03_KI           = float(d["Ki"])
+        if "Kd"       in d: V.r_LEVEL_PID_03_KD           = float(d["Kd"])
+        # Persistir en DB para recuperación tras reinicio
+        db_exec(
+            "UPDATE configuracion_actual SET modo=%s,SP=%s,CV_manual=%s,Kp=%s,Ki=%s,Kd=%s WHERE instrumento=%s",
+            ("Manual" if V.b_MAN_LC else "Auto", V.r_LEVEL_PID_SP,
+             V.r_LEVEL_PID_03_CVOverride, V.r_LEVEL_PID_03_KP,
+             V.r_LEVEL_PID_03_KI, V.r_LEVEL_PID_03_KD, "LIC-01"),
+            fetch=False
+        )
+        return jsonify({"ok": True, "instrumento": "LIC-01",
+                        "b_MAN_LC": V.b_MAN_LC, "SP": V.r_LEVEL_PID_SP})
 
-    db_exec(
-        "UPDATE configuracion_actual SET modo=%s,SP=%s,CV_manual=%s,Kp=%s,Ki=%s,Kd=%s WHERE instrumento=%s",
-        (pid.modo, pid.SP, pid.CV_manual, pid.Kp, pid.Ki, pid.Kd, tag), fetch=False
-    )
-    return jsonify({"ok": True, **pid.to_dict()})
+    elif tag == "PIC-01":
+        if "modo" in d:
+            V.b_MAN_PC = (d["modo"] == "Manual")
+        if "SP"       in d: V.r_PRESS_PID_SP              = float(d["SP"])
+        if "CV_manual" in d: V.r_PRESS_PID_03_CVOverride  = float(d["CV_manual"])
+        if "Kp"       in d: V.r_PRESS_PID_03_KP           = float(d["Kp"])
+        if "Ki"       in d: V.r_PRESS_PID_03_KI           = float(d["Ki"])
+        if "Kd"       in d: V.r_PRESS_PID_03_KD           = float(d["Kd"])
+        db_exec(
+            "UPDATE configuracion_actual SET modo=%s,SP=%s,CV_manual=%s,Kp=%s,Ki=%s,Kd=%s WHERE instrumento=%s",
+            ("Manual" if V.b_MAN_PC else "Auto", V.r_PRESS_PID_SP,
+             V.r_PRESS_PID_03_CVOverride, V.r_PRESS_PID_03_KP,
+             V.r_PRESS_PID_03_KI, V.r_PRESS_PID_03_KD, "PIC-01"),
+            fetch=False
+        )
+        return jsonify({"ok": True, "instrumento": "PIC-01",
+                        "b_MAN_PC": V.b_MAN_PC, "SP": V.r_PRESS_PID_SP})
+
+    return jsonify({"error": "Tag no encontrado. Use LIC-01 o PIC-01"}), 404
 
 
-# ── Alarmas ──────────────────────────────────────────────────
+@app.route("/api/plc/lazos", methods=["POST"])
+def toggle_lazos():
+    """Habilita/deshabilita los lazos PID del SoftPLC vía V.b_DESHABILITA_PID."""
+    d = request.get_json() or {}
+    if "habilitar" in d:
+        V.b_DESHABILITA_PID = not bool(d["habilitar"])
+    else:
+        V.b_DESHABILITA_PID = not V.b_DESHABILITA_PID
+    return jsonify({"lazos_habilitados": not V.b_DESHABILITA_PID})
+
+
+@app.route("/api/plc/status", methods=["GET"])
+def plc_status():
+    """Estado en tiempo real del motor SoftPLC."""
+    return jsonify(plc_engine.get_status())
+
+
+@app.route("/api/plc/simulacion", methods=["POST"])
+def toggle_simulacion():
+    """Activa/desactiva el modo simulación de entradas analógicas en V."""
+    d = request.get_json() or {}
+    V.b_simular_ai = bool(d.get("simular", not V.b_simular_ai))
+    return jsonify({"b_simular_ai": V.b_simular_ai})
+
+
+# ─────────────────────────────────────────────────────────────
+# Alarmas
+# ─────────────────────────────────────────────────────────────
 
 @app.route("/api/alarmas")
 def get_alarmas():
@@ -422,61 +431,39 @@ def post_alarma(instrumento):
     return jsonify({"ok": True})
 
 
-# ── Lazos ────────────────────────────────────────────────────
-
-@app.route("/api/lazos/deshabilitar", methods=["POST"])
-def toggle_lazos():
-    global _lazos_habilitados
-    _lazos_habilitados = not _lazos_habilitados
-    return jsonify({"lazos_habilitados": _lazos_habilitados})
-
-
-# ── Reportes ─────────────────────────────────────────────────
-
-import csv
-import io
-from flask import Response
+# ─────────────────────────────────────────────────────────────
+# Reportes / Histórico
+# ─────────────────────────────────────────────────────────────
 
 @app.route("/api/reportes/descargar", methods=["GET"])
 def descargar_reporte():
     f_inicio = request.args.get("inicio")
-    f_fin = request.args.get("fin")
-    
+    f_fin    = request.args.get("fin")
     query = "SELECT * FROM lecturas_proceso"
     params = []
-    
     if f_inicio and f_fin:
-        query += " WHERE timestamp BETWEEN %s AND %s"
+        query  += " WHERE timestamp BETWEEN %s AND %s"
         params.extend([f_inicio, f_fin])
-        
     query += " ORDER BY timestamp DESC LIMIT 5000"
-    
     rows = db_exec(query, tuple(params))
-    
+
     si = io.StringIO()
-    si.write('\ufeff') # BOM for UTF-8 Excel support
+    si.write('\ufeff')
     cw = csv.writer(si, delimiter=';')
     cw.writerow(["ID", "Instrumento", "Valor", "Timestamp"])
-    
     if rows:
         for r in rows:
             cw.writerow([r["id"], r["instrumento"], round(r["valor"], 3), r["timestamp"]])
     else:
-        cw.writerow(["No hay datos registrados en la base de datos para este rango", "", "", ""])
-
+        cw.writerow(["Sin datos para el rango seleccionado", "", "", ""])
     output = si.getvalue()
     si.close()
-    
-    return Response(
-        output,
-        mimetype="text/csv",
-        headers={"Content-Disposition": "attachment;filename=Reporte_MFM_Orinoco.csv"}
-    )
+    return Response(output, mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment;filename=Reporte_MFM_Orinoco.csv"})
 
 
 @app.route("/api/valores_agregados", methods=["GET"])
 def get_valores_agregados():
-    """Histórico de promedios por lote escritos por comunicacion-modbus.py."""
     instrumento = request.args.get("instrumento")
     limit       = min(int(request.args.get("limit", 200)), 2000)
     query  = "SELECT * FROM valores_agregados"
@@ -492,7 +479,6 @@ def get_valores_agregados():
 
 @app.route("/api/modbus/status", methods=["GET"])
 def get_modbus_status():
-    """Informa si comunicacion-modbus.py está escribiendo datos activamente."""
     row = db_exec(
         "SELECT instrumento, valor_promedio, fuente, timestamp "
         "FROM valores_agregados ORDER BY timestamp DESC LIMIT 1"
@@ -501,74 +487,315 @@ def get_modbus_status():
         return jsonify({"activo": False, "mensaje": "Sin datos del DAQ aún"})
     r   = row[0]
     ts  = r["timestamp"]
-    now = datetime.now()
-    # Considera activo si el último dato tiene < 30 segundos
-    diff = (now - ts).total_seconds() if ts else 9999
+    diff = (datetime.now() - ts).total_seconds() if ts else 9999
     return jsonify({
-        "activo":      diff < 30,
-        "ultimo_dato": str(ts),
-        "fuente":      r["fuente"],
+        "activo":       diff < 30,
+        "ultimo_dato":  str(ts),
+        "fuente":       r["fuente"],
         "antiguedad_s": round(diff, 1),
     })
 
 
 
 # ─────────────────────────────────────────────────────────────
-# WebSocket events
+# API DAQ — Configuración y Estado en Tiempo Real
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/daq/live", methods=["GET"])
+def daq_live():
+    """
+    Retorna el snapshot en vivo de los 6 canales AI de la DAQ.
+    Detecta 'stale data': si no hubo read exitoso en los últimos 5 s
+    se reporta connected=False aunque el cliente Modbus no haya fallado.
+    """
+    import time as _time
+    import python_migration.modbus_daq as _mdaq
+    import python_migration.fase2_entradas as _f2
+
+    # IMPORTANTE: leer el snapshot desde el módulo del PLC directamente.
+    # 'V' en app.py es 'python_migration.global_vars.V' mientras que
+    # el scan engine usa 'global_vars.V' (distinto por sys.path dual).
+    # Los atributos _daq_channel_snapshot y _daq_last_success viven en
+    # el V del scan engine, accesible vía _f2.V
+    _V_plc      = _f2.V
+    snapshot     = getattr(_V_plc, "_daq_channel_snapshot", None)
+    last_success = getattr(_V_plc, "_daq_last_success", None)
+    STALE_LIMIT  = 5.0
+
+    if last_success is None:
+        data_age_s = 0.0
+        stale      = False
+    else:
+        data_age_s = _time.monotonic() - last_success
+        stale      = data_age_s > STALE_LIMIT
+
+    connected = (not V.b_Error_DAQ) and (not stale)
+
+    # Si no hay snapshot todavía, construirlo desde el mapa de canales
+    if not snapshot:
+        snapshot = [
+            {"ch": addr, "var": var_name, "desc": desc,
+             "raw": None, "ma": None, "open_wire": True}
+            for (var_name, addr, _escala, desc) in _INPUT_MAP
+        ]
+
+    # Si los datos son stale, marcar todos como open-wire
+    if stale:
+        snapshot = [dict(ch=c["ch"], var=c.get("var",""), desc=c.get("desc",""),
+                         raw=None, ma=None, open_wire=True) for c in snapshot]
+        V.b_Error_DAQ = True
+
+    cooldown_left = max(0.0, _mdaq.RECONNECT_COOLDOWN -
+                        (_time.monotonic() - _mdaq._last_attempt))
+
+    last_error = _mdaq._last_error
+    if stale and not last_error:
+        last_error = f"Sin datos hace {round(data_age_s, 1)} s"
+
+    return jsonify({
+        "connected":   connected,
+        "stale":       stale,
+        "data_age_s":  round(data_age_s, 1),
+        "port":        _mdaq.DAQ_PORT,
+        "baudrate":    _mdaq.DAQ_BAUDRATE,
+        "slave_id":    _mdaq.DAQ_SLAVE_ID,
+        "simulating":  V.b_simular_ai,
+        "channels":    snapshot,
+        "last_error":  last_error,
+        "retry_in_s":  round(cooldown_left, 1),
+        "ts":          datetime.now().strftime("%H:%M:%S"),
+    })
+
+
+
+@app.route("/api/daq/config", methods=["GET"])
+def daq_get_config():
+    """Lee la configuración de canales desde la BD (tabla daq_channel_config)."""
+    rows = db_exec("SELECT * FROM daq_channel_config ORDER BY channel_addr")
+    return jsonify(rows or [])
+
+
+@app.route("/api/daq/config", methods=["POST"])
+def daq_save_config():
+    """
+    Guarda (UPSERT) la configuración de un canal en la BD.
+    Payload: { channel_addr, v_name, description, scale, eu_min, eu_max, enabled }
+    """
+    d = request.get_json() or {}
+    required = ["channel_addr", "v_name", "description"]
+    if not all(k in d for k in required):
+        return jsonify({"error": "Faltan campos requeridos"}), 400
+
+    db_exec(
+        """INSERT INTO daq_channel_config
+             (channel_addr, v_name, description, scale, eu_min, eu_max, enabled)
+           VALUES (%s,%s,%s,%s,%s,%s,%s)
+           ON DUPLICATE KEY UPDATE
+             v_name=%s, description=%s, scale=%s,
+             eu_min=%s, eu_max=%s, enabled=%s, updated_at=NOW()""",
+        (
+            int(d["channel_addr"]),
+            d["v_name"], d["description"],
+            float(d.get("scale", 1000.0)),
+            float(d.get("eu_min", 4.0)),
+            float(d.get("eu_max", 20.0)),
+            bool(d.get("enabled", True)),
+            # ON DUPLICATE KEY values:
+            d["v_name"], d["description"],
+            float(d.get("scale", 1000.0)),
+            float(d.get("eu_min", 4.0)),
+            float(d.get("eu_max", 20.0)),
+            bool(d.get("enabled", True)),
+        ),
+        fetch=False,
+    )
+    return jsonify({"ok": True, "channel_addr": d["channel_addr"]})
+
+
+@app.route("/api/daq/connection", methods=["GET"])
+def daq_get_connection():
+    """Devuelve la configuración de conexión guardada en BD."""
+    import python_migration.modbus_daq as _mdaq
+    rows = db_exec("SELECT * FROM daq_connection_config WHERE id=1")
+    if rows:
+        return jsonify(rows[0])
+    # Fallback: valores actuales del módulo
+    return jsonify({
+        "id": 1, "port": _mdaq.DAQ_PORT, "baudrate": _mdaq.DAQ_BAUDRATE,
+        "slave_id": _mdaq.DAQ_SLAVE_ID, "bytesize": 8, "parity": "N",
+        "stopbits": 1, "timeout_ms": int(_mdaq.DAQ_TIMEOUT * 1000),
+    })
+
+
+@app.route("/api/daq/connection", methods=["POST"])
+def daq_save_connection():
+    """
+    1. Guarda la configuración en BD (UPSERT fila id=1)
+    2. Aplica los parámetros al módulo modbus_daq en tiempo real
+    3. Fuerza reconexion limpia con cooldown = 0
+    """
+    import python_migration.modbus_daq as _mdaq
+    d = request.get_json() or {}
+
+    port     = str(d.get("port",     _mdaq.DAQ_PORT)).upper()
+    baudrate = int(d.get("baudrate", _mdaq.DAQ_BAUDRATE))
+    slave_id = int(d.get("slave_id", _mdaq.DAQ_SLAVE_ID))
+    timeout_ms = int(d.get("timeout_ms", int(_mdaq.DAQ_TIMEOUT * 1000)))
+
+    # 1. Persistir en BD (UPSERT sobre la fila única id=1)
+    db_exec(
+        """INSERT INTO daq_connection_config
+               (id, port, baudrate, slave_id, timeout_ms)
+           VALUES (1, %s, %s, %s, %s)
+           ON DUPLICATE KEY UPDATE
+               port=%s, baudrate=%s, slave_id=%s, timeout_ms=%s, updated_at=NOW()""",
+        (port, baudrate, slave_id, timeout_ms,
+         port, baudrate, slave_id, timeout_ms),
+        fetch=False,
+    )
+
+    # 2. Aplicar al módulo en tiempo real
+    _mdaq.DAQ_PORT     = port
+    _mdaq.DAQ_BAUDRATE = baudrate
+    _mdaq.DAQ_SLAVE_ID = slave_id
+    _mdaq.DAQ_TIMEOUT  = timeout_ms / 1000.0
+
+    # 3. Forzar reconexion limpia inmediata
+    _mdaq.mark_disconnected()
+    _mdaq._last_attempt = 0.0
+
+    logger.info(f"📡 DAQ conexión actualizada: {port} @ {baudrate} baud, slave={slave_id}")
+    return jsonify({
+        "ok":       True,
+        "port":     port,
+        "baudrate": baudrate,
+        "slave_id": slave_id,
+        "msg":      f"Guardado en BD y reconectando a {port}...",
+    })
+
+
+# ─────────────────────────────────────────────────────────────
+# API HART — Configuración y Estado en Tiempo Real
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/hart/config", methods=["GET"])
+def get_hart_config():
+    return jsonify(HART_CONFIG)
+
+@app.route("/api/hart/config", methods=["POST"])
+def post_hart_config():
+    d = request.get_json() or {}
+    HART_CONFIG.update(d)
+    try:
+        with open(HART_CONFIG_FILE, "w") as f:
+            json.dump(HART_CONFIG, f)
+    except Exception:
+        pass
+    return jsonify({"ok": True, "config": HART_CONFIG})
+
+@app.route("/api/hart/live", methods=["GET"])
+def get_hart_live():
+    from python_migration.comunicacion_hart import leer_instrumento_hart
+    config = {
+        'mode': HART_CONFIG.get('mode', 'tcp'),
+        'ip': HART_CONFIG.get('ip', '192.168.255.1'),
+        'port': HART_CONFIG.get('com_port', 'COM3') if HART_CONFIG.get('mode', 'tcp') == 'rtu' else int(HART_CONFIG.get('port', 502)),
+        'baudrate': int(HART_CONFIG.get('baudrate', 9600)),
+        'slave_id': int(HART_CONFIG.get('slave_id', 1)),
+        'start_address': int(HART_CONFIG.get('start_address', 618))
+    }
+    result = leer_instrumento_hart(config)
+    return jsonify(result)
+
+# ─────────────────────────────────────────────────────────────
+# WebSocket Events
 # ─────────────────────────────────────────────────────────────
 
 @socketio.on("connect")
 def on_connect():
-    print(f"🔌 Cliente conectado: {request.sid}")
-    emit("pid_config", {"PIC-01": pid_presion.to_dict(), "LIC-01": pid_nivel.to_dict()})
+    logger.info(f"🔌 Cliente conectado: {request.sid}")
+    # Enviar estado inicial del PID al conectar
+    emit("pid_config", {
+        "PIC-01": {
+            "instrumento": "PIC-01",
+            "modo":       "Auto" if not V.b_MAN_PC else "Manual",
+            "SP":         V.r_PRESS_PID_SP,
+            "Kp":         V.r_PRESS_PID_03_KP,
+            "Ki":         V.r_PRESS_PID_03_KI,
+            "Kd":         V.r_PRESS_PID_03_KD,
+        },
+        "LIC-01": {
+            "instrumento": "LIC-01",
+            "modo":       "Auto" if not V.b_MAN_LC else "Manual",
+            "SP":         V.r_LEVEL_PID_SP,
+            "Kp":         V.r_LEVEL_PID_03_KP,
+            "Ki":         V.r_LEVEL_PID_03_KI,
+            "Kd":         V.r_LEVEL_PID_03_KD,
+        },
+    })
 
 
 @socketio.on("disconnect")
 def on_disconnect():
-    print(f"🔌 Cliente desconectado: {request.sid}")
+    logger.info(f"🔌 Cliente desconectado: {request.sid}")
 
 
 @socketio.on("update_pid")
 def ws_update_pid(data):
+    """Recibe comandos de ajuste PID desde el frontend vía WebSocket."""
     tag = str(data.get("instrumento", "")).upper()
-    if tag not in PID_MAP:
-        return
-    pid = PID_MAP[tag]
-    prev_modo = pid.modo
-    if "Kp" in data: pid.Kp = float(data["Kp"])
-    if "Ki" in data: pid.Ki = float(data["Ki"])
-    if "Kd" in data: pid.Kd = float(data["Kd"])
-    if "SP" in data: pid.SP = float(data["SP"])
-    if "CV_manual" in data: pid.CV_manual = float(data["CV_manual"])
-    if "modo" in data and data["modo"] != prev_modo:
-        pid.modo = data["modo"]
-        pid.reset()
-    db_exec(
-        "UPDATE configuracion_actual SET modo=%s,SP=%s,CV_manual=%s,Kp=%s,Ki=%s,Kd=%s WHERE instrumento=%s",
-        (pid.modo, pid.SP, pid.CV_manual, pid.Kp, pid.Ki, pid.Kd, tag), fetch=False
-    )
-    emit("pid_updated", pid.to_dict(), broadcast=True)
+    if tag == "LIC-01":
+        if "modo" in data:       V.b_MAN_LC                  = (data["modo"] == "Manual")
+        if "SP" in data:         V.r_LEVEL_PID_SP             = float(data["SP"])
+        if "CV_manual" in data:  V.r_LEVEL_PID_03_CVOverride  = float(data["CV_manual"])
+        if "Kp" in data:         V.r_LEVEL_PID_03_KP          = float(data["Kp"])
+        if "Ki" in data:         V.r_LEVEL_PID_03_KI          = float(data["Ki"])
+        if "Kd" in data:         V.r_LEVEL_PID_03_KD          = float(data["Kd"])
+    elif tag == "PIC-01":
+        if "modo" in data:       V.b_MAN_PC                   = (data["modo"] == "Manual")
+        if "SP" in data:         V.r_PRESS_PID_SP             = float(data["SP"])
+        if "CV_manual" in data:  V.r_PRESS_PID_03_CVOverride  = float(data["CV_manual"])
+        if "Kp" in data:         V.r_PRESS_PID_03_KP          = float(data["Kp"])
+        if "Ki" in data:         V.r_PRESS_PID_03_KI          = float(data["Ki"])
+        if "Kd" in data:         V.r_PRESS_PID_03_KD          = float(data["Kd"])
+    emit("pid_updated", {"instrumento": tag, "ok": True}, broadcast=True)
 
 
 @socketio.on("toggle_lazos")
 def ws_toggle_lazos(_data=None):
-    global _lazos_habilitados
-    _lazos_habilitados = not _lazos_habilitados
-    emit("lazos_status", {"lazos_habilitados": _lazos_habilitados}, broadcast=True)
+    V.b_DESHABILITA_PID = not V.b_DESHABILITA_PID
+    emit("lazos_status", {"lazos_habilitados": not V.b_DESHABILITA_PID}, broadcast=True)
 
 
 # ─────────────────────────────────────────────────────────────
 # Entrypoint
 # ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("\n" + "="*52)
-    print("  MFM ORINOCO – Flask / SocketIO Backend")
-    print("  Asegúrate de que MySQL esté corriendo en XAMPP")
-    print("="*52)
-    load_pid_from_db()
-    t = threading.Thread(target=control_loop, daemon=True)
-    t.start()
-    print("  Loop de control activo (500 ms)")
-    print("  → http://localhost:5000\n")
-    socketio.run(app, host="0.0.0.0", port=5000,
-                 debug=False, allow_unsafe_werkzeug=True)
+    print("\n" + "=" * 60)
+    print("  MFM ORINOCO — SoftPLC + Flask «Todo en Uno»")
+    print("  Arquitectura: Memoria Compartida (objeto V)")
+    print("=" * 60)
+
+    # ── Restaurar configuración DAQ desde BD ──────────────────
+    _load_daq_connection_from_db()
+
+    # ── Arrancar Hilo 1: ScanEngine (100 ms, daemon) ──────────
+    # start() crea su propio threading.Thread internamente
+    plc_engine.start()
+    print(f"  ✅ SoftPLC ScanEngine activo ({len(PHASE_REGISTRY)} fases, 100 ms)")
+
+    # ── Arrancar Hilo 2: WebSocket Updater (500 ms, daemon) ───
+    ws_thread = threading.Thread(target=websocket_updater, daemon=True, name="WSUpdater")
+    ws_thread.start()
+    print("  ✅ WebSocket Updater activo (500 ms)")
+
+    print("  → http://localhost:5000")
+    print("=" * 60 + "\n")
+
+    try:
+        socketio.run(app, host="0.0.0.0", port=5000,
+                     debug=False, allow_unsafe_werkzeug=True)
+    except KeyboardInterrupt:
+        print("\n⏹  Deteniendo SoftPLC...")
+        plc_engine.stop()
+        print("  Motor detenido. Adiós.")

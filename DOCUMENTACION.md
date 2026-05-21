@@ -1,62 +1,47 @@
-# Documentación del Proyecto: MFM ORINOCO
+# Documentación del Proyecto: MFM ORINOCO (Arquitectura SoftPLC)
 
-Este documento describe la arquitectura, el funcionamiento y la estructura de archivos del sistema **MFM Orinoco (Medidor de Flujo Multifásico)**, un sistema SCADA y dashboard industrial desarrollado con Flask (Backend) y Vue 3 (Frontend).
+Este documento describe la arquitectura, el funcionamiento y la estructura de archivos del sistema **MFM Orinoco (Medidor de Flujo Multifásico)**, tras la refactorización y migración a una arquitectura "Todo en Uno" que fusiona un entorno web con un controlador SoftPLC basado en Python.
 
-## 📌 Arquitectura General
+## 📌 Arquitectura General "Todo en Uno"
 
-El proyecto sigue una arquitectura Cliente-Servidor impulsada por eventos en tiempo real:
+El proyecto funciona ahora bajo un patrón de **Memoria Compartida**, donde el servidor Flask (Backend) y el motor del SoftPLC se ejecutan de manera simultánea en hilos separados sin bloquearse entre sí.
 
-1. **Backend (Python / Flask + Socket.IO)**: Se encarga de simular el proceso industrial (presión, nivel, caudales) utilizando la lógica de Control PID. Brinda una API REST para la configuración y un WebSocket (vía Socket.IO) para enviar las lecturas de los sensores al frontend cada 500 milisegundos. Además, interactúa con una base de datos MySQL para persistir el historial de variables y configuraciones de alarmas y PIDs.
-2. **Frontend (Vue 3 + Tailwind CSS)**: Interfaz de usuario de una sola página (SPA) que se conecta al backend mediante WebSockets. Se encarga de mostrar un diagrama de tuberías e instrumentación (P&ID) interactivo superponiendo etiquetas de datos reales, así como la visualización en gráficas y tablas de la data cruda.
-3. **Base de Datos (MySQL / MariaDB en XAMPP)**: Almacena las variables del proceso histórico, la configuración de rangos de alarma y el estado persistente de los controladores PID.
+1. **Memoria Global (`V`)**: El "Cerebro Central" del sistema. Todas las variables de proceso, estados y configuraciones residen en el objeto singleton `V` (definido en `python_migration/global_vars.py`).
+2. **Motor SoftPLC (`ScanEngine`)**: Un hilo en segundo plano (`daemon`) que ejecuta un ciclo de escaneo continuo a una velocidad estricta de 100 ms. En cada ciclo, ejecuta secuencialmente las "Fases" (lectura de DAQ Modbus, cálculos de caudal, PIDs, y escritura en DAQ).
+3. **Servidor Backend (Flask + WebSockets)**: Otro hilo paralelo atiende la API REST y, a través de `websocket_updater()`, emite cada 500 ms una "foto" pasiva de la memoria global hacia el frontend usando Socket.IO.
+4. **Frontend (Vue 3 + Tailwind CSS)**: Interfaz SPA que recibe los datos en tiempo real para actualizar el dashboard P&ID y gráficas. También envía comandos REST (`/api/pid/<tag>`) que sobrescriben directamente los valores en la memoria global `V`.
+5. **Hardware DAQ (Modbus RTU)**: Comunicación serial (RS-485 / COM) con la tarjeta física de adquisición de datos para leer los transmisores (4-20mA) y comandar las válvulas de presión y nivel.
 
 ---
 
 ## 📂 Descripción de Archivos Claves
 
 ### 1. `app.py` (Core del Servidor Backend)
-Este script es el corazón del Backend y realiza las siguientes tareas principales:
-- **Servidor Web y Sockets**: Instancia la aplicación Flask y enciende el Socket.IO con CORS habilitado. 
-- **Control PID y Simulación (`simulate()`, `PIDController`)**: Tiene una simulación física realista de cómo entra gas y líquido en un separador. Controla automáticamente el estado de salida (variables `LI_01`, `PI_01`, etc.) cada 500 ms usando un lazo PID con parámetros Kp, Ki y Kd.
-- **Loop de Control (`control_loop()`)**: Un hilo en segundo plano que constantemente invoca `simulate()`, calcula las nuevas variables del proceso y lo envía a los clientes conectados vía WebSocket emit (`process_data`).
-- **Endpoints REST**: Proveen rutas API para descargar reportes en `.csv`, cambiar configuraciones PID (`/api/pid`), leer y modificar límites de alarmas (`/api/alarmas`), y deshabilitar/habilitar ambos lazos del PID.
-- **Inyección a BD**: Registra las variables del simulador en la DB (`lecturas_proceso`) periódicamente.
+El punto de entrada principal que inicializa todo el ecosistema:
+- **Puente `sys.path`**: Conecta la carpeta de la aplicación web con el subpaquete `python_migration`.
+- **Hilo del SoftPLC**: Arranca `plc_engine.start()`, levantando el motor `ScanEngine` a 100 ms.
+- **Hilo del WebSocket**: Arranca `ws_thread`, ejecutando la función que despacha la data (`process_data`) al frontend cada 500 ms.
+- **API REST**: Provee rutas (`POST /api/pid/<tag>`, `/api/plc/...`) para que las acciones manuales del operador modifiquen valores directamente en el objeto global `V`.
 
-### 2. `static/js/app.js` (Core del Frontend en Vue 3)
-Contiene la lógica y la interfaz reactiva central de la aplicación. En lugar de estar dividido en múltiples archivos, agrupa los componentes de Vue 3:
-- **`App` (Componente Root)**: Maneja la barra lateral izquierda o Sidebar que permite la navegación fluida, la cabecera (logo, reloj, estado de conexión) y mantiene las variables de estado reactivo mediante la recepción de websockets.
-- **`ProcesoPage`**: Dibuja el dashboard P&ID principal. Superpone elementos interactivos HTML/SVG por encima de una imagen estática principal (`pid_fondos.png`). Cambia los colores de las etiquetas para indicar alarmas.
-- **`DataCrudaPage`**: Integra el elemento `<canvas>` que emplea **Chart.js** para dibujar gráficos estilo tendencia ("Trend" graphs) en tiempo real de múltiples medidores.
-- **`RangosPage`**: Formulario interactivo que permite al operario actualizar rápidamente los límites SP HH, SP H, SP L, SP LL, etc., de cada dispositivo instrumental.
-- **`PidModal`**: Una ventana flotante desde la cual el usuario puede modificar la apertura manual, el setpoint y las constantes tuning (Kp, Ki, Kd) de un instrumento controlador como `PIC-01` o `LIC-01`.
+### 2. `python_migration/` (El Motor SoftPLC)
+Esta carpeta contiene la lógica de control industrial migrada (desde el antiguo PLC ISaGRAF) a Python puro:
+- **`global_vars.py`**: Define la clase singleton `V` donde se alojan todas las variables retenidas y dinámicas.
+- **`scan_engine.py`**: Define el motor de ejecución (`ScanEngine`) que itera sobre el registro de fases lógicas (`PHASE_REGISTRY`).
+- **`modbus_daq.py`**: Singleton que gestiona la conexión serial con la DAQ usando la librería `pymodbus` (Modbus RTU, 9600 baudios).
+- **`fase2_entradas.py`**: Interroga la DAQ física (Modbus) para obtener los registros analógicos crudos de entrada (4-20mA) y los escala a Unidades de Ingeniería.
+- **`fase3_caudal.py`, etc.**: Implementan las fórmulas termodinámicas, compensaciones y cálculos volumétricos del proceso.
+- **`fase8_salidas.py`**: Toma las variables Control Value calculadas por el PID (ej. posiciones para válvulas LCV-03 y PCV-03) y escribe sus valores en la tarjeta DAQ.
 
-### 3. `index.html` (Punto de entrada de Interfaz UI)
-El documento HTML raíz de la aplicación.
-- Importa Google Fonts (Inter y Roboto Mono).
-- Integra Tailwind CSS a través de CDN mediante una configuración in-extenso (`tailwind.config`). 
-- Llama los scripts remotos para Socket.IO, Vue 3 y Chart.js, y luego incorpora el motor local (`static/js/app.js`) finalizando y conectando sobre el div inicial `<div id="app">`.
-
-### 4. `start.bat` (Script Launch)
-- Automáticamente instala (vía `pip`) las dependencias listadas en `requirements.txt` (SocketIO, eventlet, mysql-connector, flask) y ejecuta el backend con `python app.py`.
-
-### 5. `db_setup.sql` (Esquemas Base de datos)
-Un script de configuración de MySQL (usado vía PHPMyAdmin de XAMPP) para construir la base de datos local llamada `x4`. Crea las tablas:
-- `configuracion_actual`: Carga los estados PID, SP, y modos `Auto/Manual`.
-- `tabla_configuracion_alarma`: Configuraciones limitantes para alarmas altas/bajas de herramientas específicas (ej. PI-01).
-- `lecturas_proceso`: Tabla histórica que almacena las métricas en tiempo-serie de los datos arrojados por el simulador.
-- `usuarios`: Registros de control de acceso al aplicativo y sistema.
-
-### 6. Archivos estáticos (`/static/`)
-- **`css/main.css`**: Define los estilos puntuales de animaciones PID, la estructura del panel de tanque y las cuadrículas que no son generadas directamente por Tailwind.
-- **`img/`**: Incluye diagramas e imágenes como logos y fondos representativos. Los elementos UI construidos con JS de la página de procesos se superponen sobre estos fondos empleando posicionamiento absoluto para mapear componentes interactivos encima de gráficos inmutables del P&ID.
+### 3. Frontend y Base de Datos
+- **`static/js/app.js`**: El código en Vue 3 que da vida a las páginas del proceso interactivo, tablas de datos crudos y gráficas de tendencias en vivo, actualizando su DOM reactivamente en cuanto llega un paquete de datos por Socket.IO.
+- **`db_setup.sql`**: Script para generar la base de datos MySQL local, aunque ahora el estado vivo principal se sostiene en `V`.
+- **`index.html`**: Punto de montaje principal de la aplicación y carga de estilos Tailwind CSS.
 
 ---
 
 ## ⚙️ Flujo General de Trabajo (Data Flow)
 
-1. Al ejecutar **`start.bat`**, este arranca el backend en Python sirviendo en el puerto `5000`.
-2. Al iniciar, el servidor Python se comunica con MySQL a través del conector para extraer los parámetros actuales que gobiernan la simulación del PID.
-3. El frontend (**index.html** renderizando la SPA) es visitado por un navegador Web. Vue 3 se inicializa a su vez, instanciando un puente vía WebSockets (`Socket.IO-Client`) directo a la API `localhost:5000` en modo bidireccional asíncrono.
-4. El simulador arroja cálculos variables en un ciclo infiniy cada 500ms; esto se despacha hacia el frontend mediante un emit ('process_data'), proveyendo a las tarjetas visuales (`DataCrudaPage`, etc.) actualizar sus tablas de valores, mover el nivel del tanque visual, y alimentar las gráficas en tiempo real.
-5. Todo cambio efectuado por el usuario (ajustar Setpoints o pasar `LCV-01` a estado Manual mediante las Modal de Settings PID) envía un Request al Servidor.
-6. El backend detiene instantáneamente en caliente su simulación para reajustar los índices temporales del control y modificar la fila en `configuracion_actual` de la base de datos MySQL, devolviendo al instante las constantes de vuelta al frontend para reestablecer la sincronización con una experiencia nula de lag intermedio.
+1. **Arranque**: Al ejecutar `python app.py`, se inicializa la aplicación web Flask y se disparan los hilos en segundo plano del SoftPLC y los WebSockets. Inmediatamente el SoftPLC inicializa la conexión Modbus RTU en el puerto COM asignado.
+2. **Ciclo PLC (100 ms)**: El motor del SoftPLC interroga a la DAQ, lee los valores brutos, realiza los cálculos de control, aplica las alarmas y actualiza las válvulas físicas o las salidas. Si el sistema está en modo simulación (`V.b_simular_ai = True`), ignora el hardware de entrada y genera sus propios estímulos para simular la planta.
+3. **Ciclo Web (500 ms)**: El servidor toma un pantallazo asíncrono de las variables más relevantes en `V` y se lo inyecta a los clientes Vue 3 a través de WebSockets, permitiendo la visualización a los operadores de forma amigable y responsiva.
+4. **Interacción de Usuario**: El operador presiona un botón para pasar a modo manual (ej. LCV-01). El frontend envía una petición REST. Flask toma esa petición y modifica de inmediato la variable en memoria (`V.b_MAN_LC = True`). En la próxima iteración del ciclo de 100 ms, el SoftPLC reconoce que está en manual y acata la nueva instrucción, abriendo o cerrando físicamente la válvula mediante el Modbus.

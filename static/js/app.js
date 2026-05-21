@@ -138,6 +138,14 @@ const App = {
             @saved="loadAlarmas"
             @toast="showToast"/>
         </div>
+
+        <div v-if="page==='daq_config'" class="flex-1 overflow-y-auto overflow-x-hidden">
+          <daq-config-page />
+        </div>
+
+        <div v-if="page==='hart_config'" class="flex-1 overflow-y-auto overflow-x-hidden">
+          <hart-config-page />
+        </div>
       </div>
     </div>
 
@@ -171,6 +179,8 @@ const App = {
       { key: 'rangos',     icon: '🔧', label: 'Conf. Instrum.'   },
       { key: 'propiedades', icon: '🔧', label: 'Propiedades'},
       { key: 'prueba_progreso', icon: '🔧', label: 'Prueba Progreso' },
+      { key: 'daq_config', icon: '📡', label: 'Config DAQ'       },
+      { key: 'hart_config', icon: '⚡', label: 'Config HART'     },
     ];
 
     const proc = reactive({
@@ -1600,6 +1610,680 @@ const PvtDataModal = {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// DAQ CONFIG PAGE — Monitor y configuración Modbus RTU en vivo
+// ═══════════════════════════════════════════════════════════════
+const DaqConfigPage = {
+  name: 'DaqConfigPage',
+  template: `
+  <div class="p-4 flex flex-col gap-4">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between flex-wrap gap-3">
+      <div>
+        <h1 class="text-xl font-bold text-white tracking-wide">📡 Configuración Modbus / DAQ</h1>
+        <p class="text-xs text-gray-400 mt-0.5">Lectura en tiempo real de canales AI y configuración de mapeo</p>
+      </div>
+      <div class="flex gap-2 flex-wrap">
+        <button @click="forceReconnect"
+                :disabled="reconnecting"
+                :class="['px-3 py-1.5 text-white text-xs font-bold rounded transition-all',
+                          reconnecting ? 'bg-gray-600 cursor-wait' : 'bg-accent-blue hover:brightness-110']">
+          {{ reconnecting ? '⏳ Reconectando...' : '🔄 Forzar Reconexión' }}
+        </button>
+        <button @click="loadLive"
+                class="px-3 py-1.5 bg-gray-700 hover:brightness-110 text-white text-xs font-bold rounded transition-all">
+          ↻ Leer Estado
+        </button>
+        <button @click="saveConnection"
+                class="px-3 py-1.5 bg-accent-green hover:brightness-110 text-white text-xs font-bold rounded transition-all">
+          💾 Guardar Conexión
+        </button>
+      </div>
+    </div>
+
+    <!-- Estado de conexión + parámetros RTU -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+      <!-- Card estado -->
+      <div class="bg-bg-card border rounded-xl p-4 flex flex-col gap-3"
+           :style="{borderColor: live.connected ? '#27a766' : '#e55353'}">
+        <div class="flex items-center gap-3">
+          <!-- Indicador pulsante -->
+          <span class="relative flex h-6 w-6 items-center justify-center flex-shrink-0">
+            <span v-if="live.connected"
+                  class="animate-ping absolute inline-flex h-4 w-4 rounded-full opacity-50"
+                  style="background:#27a766"></span>
+            <span class="relative inline-flex rounded-full h-4 w-4"
+                  :style="{background: live.connected ? '#27a766' : '#e55353'}"></span>
+          </span>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-bold text-white">
+              {{ live.connected ? '✅ DAQ Conectada' : live.stale ? '🟡 Sin Datos (Stale)' : '🔴 DAQ Desconectada' }}
+            </div>
+            <div class="text-xs text-gray-400">
+              Última lectura: {{ live.ts || '--' }}
+              <span v-if="live.data_age_s > 1" class="ml-2" :class="live.stale ? 'text-yellow-400' : 'text-gray-500'">
+                (hace {{ live.data_age_s }} s)
+              </span>
+            </div>
+            <!-- Mensaje de error -->
+            <div v-if="!live.connected && live.last_error"
+                 class="text-xs text-red-400 mt-0.5 truncate" :title="live.last_error">
+              ⚠ {{ live.last_error }}
+            </div>
+            <!-- Contador de reintento -->
+            <div v-if="!live.connected && live.retry_in_s > 0"
+                 class="text-xs text-yellow-400 mt-0.5">
+              🔁 Reintentando en {{ live.retry_in_s }} s
+            </div>
+            <div v-if="!live.connected && live.retry_in_s === 0"
+                 class="text-xs text-blue-400 mt-0.5 animate-pulse">
+              ⏳ Intentando conectar...
+            </div>
+          </div>
+          <span v-if="live.simulating"
+                class="ml-auto px-2 py-0.5 text-xs font-bold rounded bg-yellow-700 text-yellow-200 flex-shrink-0">
+            ⚡ SIM
+          </span>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="bg-bg-primary rounded-lg p-2">
+            <div class="text-xs text-gray-500">Puerto</div>
+            <div class="text-sm font-mono font-bold text-accent-yellow">{{ live.port || '--' }}</div>
+          </div>
+          <div class="bg-bg-primary rounded-lg p-2">
+            <div class="text-xs text-gray-500">Baudrate</div>
+            <div class="text-sm font-mono font-bold text-accent-yellow">{{ live.baudrate || '--' }}</div>
+          </div>
+          <div class="bg-bg-primary rounded-lg p-2">
+            <div class="text-xs text-gray-500">Slave ID</div>
+            <div class="text-sm font-mono font-bold text-accent-yellow">{{ live.slave_id ?? '--' }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card edición de conexión -->
+      <div class="bg-bg-card border border-gray-700 rounded-xl p-4 flex flex-col gap-3">
+        <div class="text-sm font-bold text-white mb-1">⚙️ Parámetros de Conexión RTU</div>
+        <div class="grid grid-cols-3 gap-3">
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-gray-400">Puerto</label>
+            <input v-model="connForm.port" placeholder="COM3"
+                   class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-gray-400">Baudrate</label>
+            <select v-model.number="connForm.baudrate"
+                    class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue">
+              <option>1200</option><option>2400</option><option>4800</option>
+              <option>9600</option><option>19200</option><option>38400</option>
+              <option>57600</option><option>115200</option>
+            </select>
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-gray-400">Slave ID</label>
+            <input v-model.number="connForm.slave_id" type="number" min="1" max="247"
+                   class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
+          </div>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-xs text-gray-400 mt-1">
+          <span>Paridad: N, 8, 1</span>
+          <span>Protocolo: Modbus RTU</span>
+          <span>Formato: Engineering ×1000</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Canales AI en tiempo real -->
+    <div class="bg-bg-card border border-gray-700 rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+        <span class="text-sm font-bold text-white">📥 Canales de Entrada Analógica (AI) — Lectura en Vivo</span>
+        <span class="text-xs text-gray-500 font-mono">Actualización: cada 500 ms</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="border-b border-gray-700 bg-bg-primary">
+              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-16">Canal</th>
+              <th class="px-3 py-2 text-left text-gray-400 font-semibold">Descripción / Instrumento</th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-24">Raw (×1000)</th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">Valor [mA]</th>
+              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-20">Estado</th>
+              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-36">Variable V</th>
+              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-20">Escala</th>
+              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-16">Editar</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="ch in mergedChannels" :key="ch.ch"
+                class="border-b border-gray-800 hover:bg-white/5 transition-colors"
+                :class="ch.open_wire ? 'opacity-50' : ''">
+              <td class="px-3 py-2">
+                <span class="font-mono font-bold text-accent-yellow">CH:{{ String(ch.ch).padStart(2,'0') }}</span>
+              </td>
+              <td class="px-3 py-2">
+                <span v-if="editingCh === ch.ch">
+                  <input v-model="editForms[ch.ch].description"
+                         class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1 w-full outline-none focus:border-accent-blue" />
+                </span>
+                <span v-else class="text-gray-200">{{ ch.desc || '—' }}</span>
+              </td>
+              <td class="px-3 py-2 text-right font-mono">
+                <span :class="ch.open_wire ? 'text-red-400' : 'text-gray-300'">{{ ch.raw ?? '—' }}</span>
+              </td>
+              <td class="px-3 py-2 text-right">
+                <!-- barra mA 4-20 -->
+                <div v-if="!ch.open_wire" class="flex items-center gap-2 justify-end">
+                  <div class="w-16 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full transition-all duration-300"
+                         :style="{
+                           width: maPercent(ch.ma)+'%',
+                           background: maColor(ch.ma)
+                         }"></div>
+                  </div>
+                  <span class="font-mono font-bold w-14 text-right"
+                        :style="{color: maColor(ch.ma)}">{{ fmt(ch.ma) }} mA</span>
+                </div>
+                <span v-else class="text-red-400 font-mono">OPEN WIRE</span>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <span v-if="ch.open_wire"
+                      class="px-2 py-0.5 text-xs font-bold rounded bg-red-900/60 text-red-300">SIN SEÑAL</span>
+                <span v-else
+                      class="px-2 py-0.5 text-xs font-bold rounded bg-green-900/60 text-green-300">OK</span>
+              </td>
+              <td class="px-3 py-2">
+                <span v-if="editingCh === ch.ch">
+                  <input v-model="editForms[ch.ch].v_name"
+                         class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1 w-full outline-none focus:border-accent-blue font-mono" />
+                </span>
+                <span v-else class="font-mono text-gray-400 text-xs">{{ ch.var || '—' }}</span>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <span v-if="editingCh === ch.ch">
+                  <input v-model.number="editForms[ch.ch].scale" type="number" step="1"
+                         class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1 w-20 outline-none focus:border-accent-blue font-mono text-center" />
+                </span>
+                <span v-else class="font-mono text-gray-400">{{ ch.scale ?? 1000 }}</span>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <button v-if="editingCh !== ch.ch"
+                        @click="startEdit(ch)"
+                        class="px-2 py-0.5 text-xs bg-accent-blue hover:brightness-110 text-white rounded transition-all">✏️</button>
+                <div v-else class="flex gap-1 justify-center">
+                  <button @click="saveCh(ch.ch)"
+                          class="px-2 py-0.5 text-xs bg-accent-green hover:brightness-110 text-white rounded">✓</button>
+                  <button @click="editingCh = null"
+                          class="px-2 py-0.5 text-xs bg-gray-600 hover:brightness-110 text-white rounded">✕</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Salidas analógicas (AO) - solo lectura por ahora -->
+    <div class="bg-bg-card border border-gray-700 rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-700">
+        <span class="text-sm font-bold text-white">📤 Canales de Salida Analógica (AO) — Control de Válvulas</span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
+        <div class="bg-bg-primary rounded-xl p-4 border border-gray-700 flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-accent-yellow">AO:00 — LCV-03 Válvula Nivel</span>
+            <span class="text-xs text-gray-500">addr: 20</span>
+          </div>
+          <div class="text-xs text-gray-400">Variable: <span class="font-mono text-white">fb_LEVEL_PID_r_CVEU</span></div>
+          <div class="text-xs text-gray-400">Escala salida: 0-100% → 0-10000 (×100)</div>
+          <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden mt-1">
+            <div class="h-full bg-accent-blue rounded-full" style="width:0%"></div>
+          </div>
+        </div>
+        <div class="bg-bg-primary rounded-xl p-4 border border-gray-700 flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-accent-yellow">AO:01 — PCV-03 Válvula Presión</span>
+            <span class="text-xs text-gray-500">addr: 21</span>
+          </div>
+          <div class="text-xs text-gray-400">Variable: <span class="font-mono text-white">fb_PRESS_PID_r_CVEU</span></div>
+          <div class="text-xs text-gray-400">Escala salida: 0-100% → 0-10000 (×100)</div>
+          <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden mt-1">
+            <div class="h-full bg-accent-blue rounded-full" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Salidas digitales (DO) -->
+    <div class="bg-bg-card border border-gray-700 rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-gray-700">
+        <span class="text-sm font-bold text-white">🔌 Salidas Digitales (DO) — No en uso actualmente</span>
+      </div>
+      <div class="grid grid-cols-3 gap-3 p-4">
+        <div v-for="i in 3" :key="i"
+             class="bg-bg-primary rounded-lg p-3 border border-gray-700 opacity-50 flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-gray-600"></span>
+          <span class="text-xs text-gray-500">DO:0{{ i-1 }} — Sin asignar</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast interno -->
+    <transition name="fade">
+      <div v-if="toast.show"
+           class="fixed bottom-6 right-6 px-4 py-2 rounded-lg text-sm font-bold shadow-xl z-50"
+           :class="toast.ok ? 'bg-accent-green text-white' : 'bg-accent-red text-white'">
+        {{ toast.msg }}
+      </div>
+    </transition>
+  </div>`,
+
+  setup() {
+    const live       = reactive({
+      connected: false, port:'COM3', baudrate:9600, slave_id:1,
+      simulating:false, channels:[], ts:'--',
+      last_error:'', retry_in_s: 0, stale: false, data_age_s: 0,
+    });
+    const connForm      = reactive({ port:'COM3', baudrate:9600, slave_id:1 });
+    const dbConfig      = ref([]);
+    const editingCh     = ref(null);
+    const editForms     = reactive({});
+    const toast         = reactive({ show:false, ok:true, msg:'' });
+    const reconnecting  = ref(false);
+
+    // Flag: el usuario editó connForm y no ha guardado aun
+    // (variable JS simple, no necesita ser reactiva)
+    let _connFormDirty = false;
+    // Marcar como dirty cuando el usuario toca cualquier campo del form
+    watch(connForm, () => { _connFormDirty = true; }, { deep: true, flush: 'sync' });
+
+    // Mezcla datos en vivo + config BD en una sola lista de 6 canales
+    const mergedChannels = computed(() => {
+      const byAddr = {};
+      dbConfig.value.forEach(c => { byAddr[c.channel_addr] = c; });
+
+      // Usar snapshot en vivo si tiene datos (Array con al menos 1 elemento)
+      if (Array.isArray(live.channels) && live.channels.length > 0) {
+        return live.channels.map(ch => ({
+          ...ch,
+          desc:  (byAddr[ch.ch] || {}).description || ch.desc,
+          scale: (byAddr[ch.ch] || {}).scale       || 1000,
+          v_name:(byAddr[ch.ch] || {}).v_name      || ch.var,
+        }));
+      }
+
+      // Fallback estático solo si aún no llegó ningún dato del backend
+      return Array.from({ length: 6 }, (_, i) => ({
+        ch: i,
+        desc:  (byAddr[i] || {}).description || `CH:0${i} — esperando...`,
+        raw: null, ma: null, open_wire: false,   // false para no mostrar error al cargar
+        var: (byAddr[i] || {}).v_name || '',
+        scale: (byAddr[i] || {}).scale || 1000,
+      }));
+    });
+
+    function showToast(msg, ok=true) {
+      toast.msg = msg; toast.ok = ok; toast.show = true;
+      setTimeout(() => { toast.show = false; }, 2500);
+    }
+
+    async function loadLive() {
+      try {
+        const d = await (await fetch('/api/daq/live')).json();
+        live.connected  = d.connected;
+        live.simulating = d.simulating;
+        live.channels   = d.channels;
+        live.ts         = d.ts;
+        live.last_error = d.last_error || '';
+        live.retry_in_s = d.retry_in_s ?? 0;
+        live.stale      = d.stale ?? false;
+        live.data_age_s = d.data_age_s ?? 0;
+        // Sincronizar parámetros de conexión SOLO si el usuario no está editando
+        if (!_connFormDirty) {
+          live.port     = d.port;
+          live.baudrate = d.baudrate;
+          live.slave_id = d.slave_id;
+          connForm.port     = d.port;
+          connForm.baudrate = d.baudrate;
+          connForm.slave_id = d.slave_id;
+        }
+      } catch(e) { console.error('DAQ live error:', e); }
+    }
+
+    async function loadDbConfig() {
+      try {
+        const d = await (await fetch('/api/daq/config')).json();
+        dbConfig.value = d;
+      } catch(e) {}
+    }
+
+    // Carga la config de conexión guardada en BD y la pone en connForm
+    async function loadConnConfig() {
+      try {
+        const d = await (await fetch('/api/daq/connection')).json();
+        connForm.port     = d.port     || 'COM3';
+        connForm.baudrate = d.baudrate || 9600;
+        connForm.slave_id = d.slave_id || 1;
+        _connFormDirty = false;  // recién cargado de BD, no es dirty
+      } catch(e) {}
+    }
+
+    async function saveConnection() {
+      try {
+        const r = await fetch('/api/daq/connection', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(connForm),
+        });
+        if (r.ok) {
+          _connFormDirty = false;
+          showToast('✅ Parámetros guardados en BD — reconectando...');
+          await loadLive();
+        } else showToast('❌ Error al guardar', false);
+      } catch(e) { showToast('❌ Error de red', false); }
+    }
+
+    // Fuerza reconexión inmediata con los parámetros actuales del módulo
+    async function forceReconnect() {
+      reconnecting.value = true;
+      try {
+        // Enviar POST con los parámetros actuales para forzar reconexión limpia
+        await fetch('/api/daq/connection', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(connForm),
+        });
+        showToast('🔄 Forzando reconexión...');
+        // Esperar 1.5 s para que el ciclo PLC intente conectar
+        await new Promise(res => setTimeout(res, 1500));
+        await loadLive();
+      } catch(e) {
+        showToast('❌ Error al reconectar', false);
+      } finally {
+        reconnecting.value = false;
+      }
+    }
+
+    function startEdit(ch) {
+      editingCh.value = ch.ch;
+      editForms[ch.ch] = {
+        description: ch.desc || '',
+        v_name:      ch.var  || ch.v_name || '',
+        scale:       ch.scale || 1000,
+      };
+    }
+
+    async function saveCh(addr) {
+      const f = editForms[addr];
+      try {
+        const r = await fetch('/api/daq/config', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ channel_addr: addr, ...f }),
+        });
+        if (r.ok) {
+          showToast(`✅ CH:${String(addr).padStart(2,'0')} guardado`);
+          editingCh.value = null;
+          await loadDbConfig();
+        } else showToast('❌ Error al guardar', false);
+      } catch(e) { showToast('❌ Error de red', false); }
+    }
+
+    const fmt = v => v !== null && v !== undefined ? parseFloat(v).toFixed(3) : '—';
+
+    // Porcentaje 4-20 mA para la barra visual
+    function maPercent(ma) {
+      if (ma === null || ma === undefined) return 0;
+      return Math.min(100, Math.max(0, ((ma - 4) / 16) * 100));
+    }
+
+    // Color de la barra según el valor mA
+    function maColor(ma) {
+      if (ma === null || ma === undefined) return '#6b7280';
+      const pct = maPercent(ma);
+      if (pct < 5)  return '#e55353';  // muy bajo
+      if (pct > 95) return '#e55353';  // saturado
+      return '#27a766';
+    }
+
+    let liveTimer;
+    onMounted(() => {
+      loadLive();
+      loadDbConfig();
+      loadConnConfig();   // cargar parámetros guardados en BD
+      liveTimer = setInterval(loadLive, 1000);
+    });
+    onUnmounted(() => { clearInterval(liveTimer); });
+
+    return { live, connForm, mergedChannels, editingCh, editForms, toast,
+             reconnecting, loadLive, forceReconnect, saveConnection,
+             startEdit, saveCh, fmt, maPercent, maColor };
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// HART CONFIG PAGE
+// ═══════════════════════════════════════════════════════════════
+const HartConfigPage = {
+  name: 'HartConfigPage',
+  template: `
+  <div class="p-4 flex flex-col gap-4">
+    <div class="flex items-center justify-between flex-wrap gap-3">
+      <div>
+        <h1 class="text-xl font-bold text-white tracking-wide">⚡ Configuración Modbus HART</h1>
+        <p class="text-xs text-gray-400 mt-0.5">Configuración y lectura de variables HART de la DAQ</p>
+      </div>
+      <div class="flex gap-2 flex-wrap">
+        <button @click="loadLive"
+                class="px-3 py-1.5 bg-gray-700 hover:brightness-110 text-white text-xs font-bold rounded transition-all">
+          ↻ Leer Estado
+        </button>
+        <button @click="saveConnection"
+                class="px-3 py-1.5 bg-accent-green hover:brightness-110 text-white text-xs font-bold rounded transition-all">
+          💾 Guardar Configuración
+        </button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- Card estado HART -->
+      <div class="bg-bg-card border rounded-xl p-4 flex flex-col gap-3"
+           :style="{borderColor: live.connected ? '#27a766' : '#e55353'}">
+        <div class="flex items-center gap-3">
+          <span class="relative flex h-6 w-6 items-center justify-center flex-shrink-0">
+            <span v-if="live.connected"
+                  class="animate-ping absolute inline-flex h-4 w-4 rounded-full opacity-50"
+                  style="background:#27a766"></span>
+            <span class="relative inline-flex rounded-full h-4 w-4"
+                  :style="{background: live.connected ? '#27a766' : '#e55353'}"></span>
+          </span>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-bold text-white">
+              {{ live.connected ? '✅ Comunicación HART OK' : '🔴 HART Desconectado' }}
+            </div>
+            <div v-if="live.error"
+                 class="text-xs text-red-400 mt-0.5 truncate" :title="live.error">
+              ⚠ {{ live.error }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Telemetry Data -->
+        <div class="grid grid-cols-2 gap-3 mt-2">
+          <div class="bg-bg-primary rounded-lg p-3">
+            <div class="text-xs text-gray-500">Status Dispositivo</div>
+            <div class="text-lg font-mono font-bold text-accent-yellow">
+              {{ live.connected ? '0x' + live.status.toString(16).toUpperCase().padStart(4, '0') : '--' }}
+            </div>
+          </div>
+          <div class="bg-bg-primary rounded-lg p-3">
+            <div class="text-xs text-gray-500">PV Current (mA)</div>
+            <div class="text-lg font-mono font-bold text-accent-blue">
+              {{ live.connected ? live.pv_current.toFixed(4) : '--' }}
+            </div>
+          </div>
+          <div class="bg-bg-primary rounded-lg p-3 border-l-2 border-accent-green">
+            <div class="text-xs text-gray-500">PV 1 <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv1.unit : '-' }}</span></div>
+            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv1.value.toFixed(4) : '--' }}</div>
+          </div>
+          <div class="bg-bg-primary rounded-lg p-3 border-l-2 border-accent-green">
+            <div class="text-xs text-gray-500">PV 2 (inH2O) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv2.unit : '-' }}</span></div>
+            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv2.value.toFixed(4) : '--' }}</div>
+          </div>
+          <div class="bg-bg-primary rounded-lg p-3 border-l-2 border-accent-green">
+            <div class="text-xs text-gray-500">PV 3 (psi) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv3.unit : '-' }}</span></div>
+            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv3.value.toFixed(4) : '--' }}</div>
+          </div>
+          <div class="bg-bg-primary rounded-lg p-3 border-l-2 border-accent-green">
+            <div class="text-xs text-gray-500">PV 4 (degF) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv4.unit : '-' }}</span></div>
+            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv4.value.toFixed(4) : '--' }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card edición de conexión -->
+      <div class="bg-bg-card border border-gray-700 rounded-xl p-4 flex flex-col gap-3">
+        <div class="text-sm font-bold text-white mb-1">⚙️ Configuración HART</div>
+        <div class="flex flex-col gap-1 mb-2">
+          <label class="text-xs text-gray-400">Modo de Comunicación</label>
+          <select v-model="connForm.mode"
+                  class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue">
+            <option value="tcp">Modbus TCP/IP (Ethernet) - Por defecto</option>
+            <option value="rtu">Modbus RTU (Puertos COM) - Opcional</option>
+          </select>
+        </div>
+
+        <!-- Campos TCP -->
+        <div v-if="connForm.mode === 'tcp'" class="grid grid-cols-2 gap-3 bg-bg-primary p-3 rounded border border-gray-800">
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-gray-400">Dirección IP</label>
+            <input v-model="connForm.ip" placeholder="192.168.255.1"
+                   class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-gray-400">Puerto TCP</label>
+            <input v-model.number="connForm.port" type="number"
+                   class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
+          </div>
+        </div>
+
+        <!-- Campos RTU -->
+        <div v-if="connForm.mode === 'rtu'" class="grid grid-cols-2 gap-3 bg-bg-primary p-3 rounded border border-gray-800">
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-gray-400">Puerto COM</label>
+            <input v-model="connForm.com_port" placeholder="COM3"
+                   class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-gray-400">Baudrate</label>
+            <select v-model.number="connForm.baudrate"
+                    class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue">
+              <option>1200</option><option>2400</option><option>4800</option>
+              <option>9600</option><option>19200</option><option>38400</option>
+              <option>57600</option><option>115200</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 mt-1">
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-gray-400">Slave ID (Modbus)</label>
+            <input v-model.number="connForm.slave_id" type="number" min="1" max="247"
+                   class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs text-gray-400">Start Address (Word)</label>
+            <input v-model.number="connForm.start_address" type="number"
+                   class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Toast interno -->
+    <transition name="fade">
+      <div v-if="toast.show"
+           class="fixed bottom-6 right-6 px-4 py-2 rounded-lg text-sm font-bold shadow-xl z-50"
+           :class="toast.ok ? 'bg-accent-green text-white' : 'bg-accent-red text-white'">
+        {{ toast.msg }}
+      </div>
+    </transition>
+  </div>`,
+  setup() {
+    const live = reactive({
+      connected: false, error: null,
+      status: 0, pv_current: 0,
+      pv1: {value: 0, unit: 0},
+      pv2: {value: 0, unit: 0},
+      pv3: {value: 0, unit: 0},
+      pv4: {value: 0, unit: 0}
+    });
+    const connForm = reactive({
+      mode: 'tcp', ip: '192.168.255.1', port: 502,
+      com_port: 'COM3', baudrate: 9600, slave_id: 1, start_address: 618
+    });
+    const toast = reactive({ show:false, ok:true, msg:'' });
+
+    function showToast(msg, ok=true) {
+      toast.msg = msg; toast.ok = ok; toast.show = true;
+      setTimeout(() => { toast.show = false; }, 2500);
+    }
+
+    async function loadConfig() {
+      try {
+        const d = await (await fetch('/api/hart/config')).json();
+        Object.assign(connForm, d);
+      } catch(e) {}
+    }
+
+    async function saveConnection() {
+      try {
+        const r = await fetch('/api/hart/config', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(connForm),
+        });
+        if (r.ok) {
+          showToast('✅ Configuración HART guardada exitosamente');
+          await loadLive();
+        } else {
+          showToast('❌ Error al guardar', false);
+        }
+      } catch(e) {
+        showToast('❌ Error de red', false);
+      }
+    }
+
+    async function loadLive() {
+      try {
+        const d = await (await fetch('/api/hart/live')).json();
+        Object.assign(live, d);
+        if(d.connected) {
+          showToast('✅ Datos HART actualizados');
+        } else {
+          showToast('❌ Fallo al leer datos HART', false);
+        }
+      } catch(e) {
+        live.connected = false;
+        live.error = "Error de red al consultar el backend";
+        showToast('❌ Error de red', false);
+      }
+    }
+
+    let liveTimer;
+    onMounted(() => {
+      loadConfig();
+      // Leer al inicio y luego cada 5 segundos si está conectado
+      loadLive();
+      liveTimer = setInterval(() => {
+          if (live.connected) loadLive();
+      }, 5000);
+    });
+    onUnmounted(() => {
+      clearInterval(liveTimer);
+    });
+
+    return { live, connForm, toast, loadLive, saveConnection };
+  }
+};
+
 // ── Mount ────────────────────────────────────────────────────
 const app = createApp(App);
 app.component('proceso-page',   ProcesoPage);
@@ -1612,4 +2296,7 @@ app.component('propiedades-page',PropiedadesPage);
 app.component('pvt-page', PvtPage);
 app.component('pvt-data-modal', PvtDataModal);
 app.component('rangos-page',    RangosPage);
+app.component('daq-config-page', DaqConfigPage);
+app.component('hart-config-page', HartConfigPage);
 app.mount('#app');
+
