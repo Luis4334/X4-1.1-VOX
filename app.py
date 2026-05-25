@@ -836,6 +836,56 @@ def post_hart_config():
         pass
     return jsonify({"ok": True, "config": HART_CONFIG})
 
+@app.route("/api/hart/reboot", methods=["POST"])
+def post_hart_reboot():
+    """
+    Realiza login y solicita reboot al gateway ICP DAS HRT-711.
+    También desconecta la conexión persistente actual para forzar reconexión posterior.
+    """
+    mode = HART_CONFIG.get("mode", "tcp")
+    if mode != "tcp":
+        return jsonify({"ok": False, "error": "El reinicio por software solo está disponible en modo TCP/IP."}), 400
+
+    ip = HART_CONFIG.get("ip", "192.168.255.1")
+    password = "admin123"  # Contraseña estándar del gateway
+
+    # 1. Forzar desconexión local del poller para que no intente usar el socket mientras se reinicia
+    try:
+        from python_migration.comunicacion_hart import force_disconnect
+        force_disconnect()
+    except Exception as e:
+        logger.error(f"Error forzando desconexión HART: {e}")
+
+    # 2. Hacer la solicitud HTTP al gateway
+    import urllib.request
+    import http.cookiejar
+    
+    cj = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+    
+    try:
+        login_url = f"http://{ip}/login.cgi?webpwd={password}"
+        logger.info(f"[HART] Iniciando login de reinicio en {login_url}")
+        req = urllib.request.Request(login_url)
+        with opener.open(req, timeout=5) as resp:
+            resp.read()
+            
+        reboot_url = f"http://{ip}/reboot.cgi?mysubmit2=Reboot"
+        logger.info(f"[HART] Enviando comando de reboot en {reboot_url}")
+        req_reboot = urllib.request.Request(reboot_url)
+        # Se usa un timeout corto de 5s; es común que falle si la conexión se cierra inmediatamente tras recibir el comando
+        try:
+            with opener.open(req_reboot, timeout=5) as resp:
+                resp.read()
+        except Exception as re:
+            # Ignorar si es un reset de conexión normal al reiniciarse
+            logger.info(f"[HART] Envío de reboot completado (respuesta recibida/conexión reseteada: {re})")
+            
+        return jsonify({"ok": True, "message": "Comando de reinicio enviado correctamente al gateway. Guardando cambios y reconectando en 15s."})
+    except Exception as e:
+        logger.error(f"[HART] Error al reiniciar gateway via HTTP: {e}")
+        return jsonify({"ok": False, "error": f"Error de comunicación con el gateway web: {e}"}), 502
+
 @app.route("/api/hart/live", methods=["GET"])
 def get_hart_live():
     """Devuelve el último snapshot de los 15 canales HART desde la caché (no bloquea)."""

@@ -75,6 +75,13 @@ def _close_client():
     _hart_connected = False
 
 
+def force_disconnect():
+    """Fuerza la desconexión del cliente HART."""
+    logger.info("[HART] Forzando desconexión de cliente persistente...")
+    _close_client()
+
+
+
 def _get_client(config: dict):
     """
     Devuelve el cliente Modbus persistente activo.

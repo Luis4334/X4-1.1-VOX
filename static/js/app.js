@@ -2127,6 +2127,12 @@ const HartConfigPage = {
                 class="px-3 py-1.5 bg-accent-green hover:brightness-110 text-white text-xs font-bold rounded transition-all">
           💾 Guardar Conexión Gateway
         </button>
+        <button v-if="connForm.mode === 'tcp'"
+                @click="rebootGateway"
+                :disabled="rebooting"
+                class="px-3 py-1.5 bg-accent-red hover:brightness-110 disabled:opacity-50 text-white text-xs font-bold rounded transition-all">
+          ⚡ Reiniciar Gateway (Reboot)
+        </button>
       </div>
     </div>
 
@@ -2342,6 +2348,32 @@ const HartConfigPage = {
       }
     }
 
+    const rebooting = ref(false);
+
+    async function rebootGateway() {
+      if (!confirm("¿Está seguro de que desea reiniciar el Gateway ICP DAS HRT-711?\nSe perderá la conexión durante aproximadamente 15 segundos.")) {
+        return;
+      }
+      rebooting.value = true;
+      showToast("⏳ Enviando comando de reinicio...");
+      try {
+        const r = await fetch('/api/hart/reboot', { method: 'POST' });
+        const d = await r.json();
+        if (r.ok && d.ok) {
+          showToast("⚡ " + d.message);
+          setTimeout(() => {
+            loadLive();
+          }, 15000);
+        } else {
+          showToast("❌ Error: " + (d.error || "No se pudo reiniciar"), false);
+        }
+      } catch (e) {
+        showToast("❌ Error de red al conectar con el servidor", false);
+      } finally {
+        rebooting.value = false;
+      }
+    }
+
     async function loadDbConfig() {
       try {
         const d = await (await fetch('/api/hart/config/channels')).json();
@@ -2433,7 +2465,7 @@ const HartConfigPage = {
     return {
       liveChannels, connForm, dbConfig, editingCh, editForms, toast,
       loadLive, saveConnection, startEdit, saveCh, mergedHartChannels,
-      fmtCurrent, fmtValue
+      fmtCurrent, fmtValue, rebooting, rebootGateway
     };
   }
 };
