@@ -1647,6 +1647,11 @@ const DaqConfigPage = {
                 class="px-3 py-1.5 bg-accent-green hover:brightness-110 text-white text-xs font-bold rounded transition-all">
           💾 Guardar Conexión
         </button>
+        <button @click="rebootDaq"
+                :disabled="rebooting"
+                class="px-3 py-1.5 bg-accent-red hover:brightness-110 disabled:opacity-50 text-white text-xs font-bold rounded transition-all">
+          ⚡ Reiniciar DAQ (M-7026)
+        </button>
       </div>
     </div>
 
@@ -2038,6 +2043,30 @@ const DaqConfigPage = {
       }
     }
 
+    const rebooting = ref(false);
+
+    async function rebootDaq() {
+      if (!confirm("¿Está seguro de que desea reiniciar la conexión con la DAQ M-7026?\nEsto liberará el puerto COM y reconectará inmediatamente.")) {
+        return;
+      }
+      rebooting.value = true;
+      showToast("⏳ Enviando comando de reinicio...");
+      try {
+        const r = await fetch('/api/daq/reboot', { method: 'POST' });
+        const d = await r.json();
+        if (r.ok && d.ok) {
+          showToast("⚡ " + d.message);
+          await loadLive();
+        } else {
+          showToast("❌ Error: " + (d.error || "No se pudo reiniciar"), false);
+        }
+      } catch (e) {
+        showToast("❌ Error de red al conectar con el servidor", false);
+      } finally {
+        rebooting.value = false;
+      }
+    }
+
     function startEdit(ch) {
       editingCh.value = ch.var;
       editForms[ch.var] = {
@@ -2097,7 +2126,7 @@ const DaqConfigPage = {
     return {
       live, connForm, mergedChannels, editingCh, editForms, toast,
       reconnecting, loadLive, forceReconnect, saveConnection,
-      startEdit, saveCh, fmt, maPercent, maColor
+      startEdit, saveCh, fmt, maPercent, maColor, rebooting, rebootDaq
     };
   }
 };

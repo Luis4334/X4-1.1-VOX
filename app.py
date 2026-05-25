@@ -777,13 +777,14 @@ def daq_save_connection():
     2. Aplica los parámetros al módulo modbus_daq en tiempo real
     3. Fuerza reconexion limpia con cooldown = 0
     """
-    import python_migration.modbus_daq as _mdaq
+    import sys
+    import python_migration.modbus_daq as _mdaq1
     d = request.get_json() or {}
 
-    port     = str(d.get("port",     _mdaq.DAQ_PORT)).upper()
-    baudrate = int(d.get("baudrate", _mdaq.DAQ_BAUDRATE))
-    slave_id = int(d.get("slave_id", _mdaq.DAQ_SLAVE_ID))
-    timeout_ms = int(d.get("timeout_ms", int(_mdaq.DAQ_TIMEOUT * 1000)))
+    port     = str(d.get("port",     _mdaq1.DAQ_PORT)).upper()
+    baudrate = int(d.get("baudrate", _mdaq1.DAQ_BAUDRATE))
+    slave_id = int(d.get("slave_id", _mdaq1.DAQ_SLAVE_ID))
+    timeout_ms = int(d.get("timeout_ms", int(_mdaq1.DAQ_TIMEOUT * 1000)))
 
     # 1. Persistir en BD (UPSERT sobre la fila única id=1)
     db_exec(
@@ -797,15 +798,20 @@ def daq_save_connection():
         fetch=False,
     )
 
-    # 2. Aplicar al módulo en tiempo real
-    _mdaq.DAQ_PORT     = port
-    _mdaq.DAQ_BAUDRATE = baudrate
-    _mdaq.DAQ_SLAVE_ID = slave_id
-    _mdaq.DAQ_TIMEOUT  = timeout_ms / 1000.0
+    # 2. Aplicar a todas las instancias del módulo en tiempo real
+    mdaq_instances = [_mdaq1]
+    _mdaq2 = sys.modules.get('modbus_daq')
+    if _mdaq2:
+        mdaq_instances.append(_mdaq2)
 
-    # 3. Forzar reconexion limpia inmediata
-    _mdaq.mark_disconnected()
-    _mdaq._last_attempt = 0.0
+    for mdaq in mdaq_instances:
+        mdaq.DAQ_PORT     = port
+        mdaq.DAQ_BAUDRATE = baudrate
+        mdaq.DAQ_SLAVE_ID = slave_id
+        mdaq.DAQ_TIMEOUT  = timeout_ms / 1000.0
+        # 3. Forzar reconexión limpia inmediata
+        mdaq.mark_disconnected()
+        mdaq._last_attempt = 0.0
 
     logger.info(f"📡 DAQ conexión actualizada: {port} @ {baudrate} baud, slave={slave_id}")
     return jsonify({
@@ -815,6 +821,42 @@ def daq_save_connection():
         "slave_id": slave_id,
         "msg":      f"Guardado en BD y reconectando a {port}...",
     })
+
+@app.route("/api/daq/reboot", methods=["POST"])
+def post_daq_reboot():
+    """
+    Fuerza el reinicio de la comunicación con la DAQ M-7026.
+    Libera el puerto COM y restablece el cooldown para reconectar de inmediato.
+    """
+    try:
+        import sys
+        mdaq_instances = []
+        import python_migration.modbus_daq as _mdaq1
+        mdaq_instances.append(_mdaq1)
+        
+        _mdaq2 = sys.modules.get('modbus_daq')
+        if _mdaq2:
+            mdaq_instances.append(_mdaq2)
+            
+        for mdaq in mdaq_instances:
+            # 1. Marcar como desconectado (cierra el puerto serial COM activo)
+            mdaq.mark_disconnected()
+            # 2. Forzar reconexión inmediata en el próximo ciclo del ScanEngine (cooldown = 0)
+            mdaq._last_attempt = 0.0
+        
+        logger.info("[DAQ] Comando de reinicio de puerto/conexión ejecutado. Reconectando...")
+        return jsonify({
+            "ok": True,
+            "message": "Comunicación con la DAQ M-7026 reiniciada. Puerto serial liberado y reconectando..."
+        })
+    except Exception as e:
+        logger.error(f"[DAQ] Error al reiniciar la conexión de la DAQ: {e}")
+        return jsonify({
+            "ok": False,
+            "error": f"Error al reiniciar la conexión: {e}"
+        }), 500
+
+
 
 
 # ─────────────────────────────────────────────────────────────
