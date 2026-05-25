@@ -72,9 +72,49 @@ HART_CONFIG = {
 try:
     if os.path.exists(HART_CONFIG_FILE):
         with open(HART_CONFIG_FILE, "r") as f:
-            HART_CONFIG.update(json.load(f))
+            loaded = json.load(f)
+            # Garantizar que slave_id sea al menos 1 (nunca 0)
+            if int(loaded.get('slave_id', 1)) == 0:
+                loaded['slave_id'] = 1
+            HART_CONFIG.update(loaded)
 except Exception:
     pass
+
+# ── Caché del último resultado HART + hilo de polling ────────────
+_HART_CACHE_LOCK   = threading.Lock()
+_HART_LAST_RESULT  = {
+    "connected": False, "error": "Iniciando...",
+    "status": 0, "pv_current": 0,
+    "pv1": {"value": 0, "unit": 0},
+    "pv2": {"value": 0, "unit": 0},
+    "pv3": {"value": 0, "unit": 0},
+    "pv4": {"value": 0, "unit": 0},
+}
+_HART_POLL_INTERVAL = 3.0   # segundos entre lecturas HART
+
+def _hart_background_poller():
+    """Hilo daemon que lee el gateway HART independientemente del scan loop."""
+    from python_migration.comunicacion_hart import leer_instrumento_hart
+    hart_logger = logging.getLogger("orinoco.hart.poller")
+    hart_logger.info("⏳ Poller HART iniciado (intervalo %.1fs)" % _HART_POLL_INTERVAL)
+    while True:
+        try:
+            cfg = {
+                'mode':          HART_CONFIG.get('mode', 'tcp'),
+                'ip':            HART_CONFIG.get('ip', '192.168.255.1'),
+                'port':          int(HART_CONFIG.get('port', 502)),
+                'com_port':      HART_CONFIG.get('com_port', 'COM3'),
+                'baudrate':      int(HART_CONFIG.get('baudrate', 9600)),
+                'slave_id':      max(1, int(HART_CONFIG.get('slave_id', 1))),  # Nunca 0
+                'start_address': int(HART_CONFIG.get('start_address', 618)),
+            }
+            result = leer_instrumento_hart(cfg)
+            with _HART_CACHE_LOCK:
+                _HART_LAST_RESULT.clear()
+                _HART_LAST_RESULT.update(result)
+        except Exception as ex:
+            hart_logger.error(f"[Poller] Error inesperado: {ex}")
+        time.sleep(_HART_POLL_INTERVAL)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -536,7 +576,7 @@ def daq_live():
         snapshot = [
             {"ch": addr, "var": var_name, "desc": desc,
              "raw": None, "ma": None, "open_wire": True}
-            for (var_name, addr, _escala, desc) in _INPUT_MAP
+            for (var_name, addr, _escala, desc) in _f2._INPUT_MAP
         ]
 
     # Si los datos son stale, marcar todos como open-wire
@@ -695,17 +735,10 @@ def post_hart_config():
 
 @app.route("/api/hart/live", methods=["GET"])
 def get_hart_live():
-    from python_migration.comunicacion_hart import leer_instrumento_hart
-    config = {
-        'mode': HART_CONFIG.get('mode', 'tcp'),
-        'ip': HART_CONFIG.get('ip', '192.168.255.1'),
-        'port': HART_CONFIG.get('com_port', 'COM3') if HART_CONFIG.get('mode', 'tcp') == 'rtu' else int(HART_CONFIG.get('port', 502)),
-        'baudrate': int(HART_CONFIG.get('baudrate', 9600)),
-        'slave_id': int(HART_CONFIG.get('slave_id', 1)),
-        'start_address': int(HART_CONFIG.get('start_address', 618))
-    }
-    result = leer_instrumento_hart(config)
-    return jsonify(result)
+    """Devuelve el último snapshot HART desde la caché (no bloquea)."""
+    with _HART_CACHE_LOCK:
+        snapshot = dict(_HART_LAST_RESULT)
+    return jsonify(snapshot)
 
 # ─────────────────────────────────────────────────────────────
 # WebSocket Events
@@ -788,6 +821,11 @@ if __name__ == "__main__":
     ws_thread = threading.Thread(target=websocket_updater, daemon=True, name="WSUpdater")
     ws_thread.start()
     print("  ✅ WebSocket Updater activo (500 ms)")
+
+    # ── Arrancar Hilo 3: HART Background Poller (daemon) ──────
+    hart_thread = threading.Thread(target=_hart_background_poller, daemon=True, name="HARTPoller")
+    hart_thread.start()
+    print(f"  ✅ HART Poller activo (cada {_HART_POLL_INTERVAL}s) → {HART_CONFIG.get('ip')}:{HART_CONFIG.get('port')} slave={HART_CONFIG.get('slave_id')}")
 
     print("  → http://localhost:5000")
     print("=" * 60 + "\n")

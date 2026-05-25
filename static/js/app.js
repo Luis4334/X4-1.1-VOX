@@ -8,9 +8,9 @@ function alarmClass(value, cfg) {
   const v = parseFloat(value);
   if (isNaN(v)) return '';
   if (cfg.SP_HH !== null && v >= cfg.SP_HH) return 'alarm-hh';
-  if (cfg.SP_H  !== null && v >= cfg.SP_H)  return 'alarm-h';
+  if (cfg.SP_H !== null && v >= cfg.SP_H) return 'alarm-h';
   if (cfg.SP_LL !== null && v <= cfg.SP_LL) return 'alarm-ll';
-  if (cfg.SP_L  !== null && v <= cfg.SP_L)  return 'alarm-l';
+  if (cfg.SP_L !== null && v <= cfg.SP_L) return 'alarm-l';
   return '';
 }
 
@@ -163,47 +163,47 @@ const App = {
   </div>`,
 
   setup() {
-    const page        = ref('proceso');
-    const connected   = ref(false);
-    const lazos       = ref(true);
-    const toasts      = ref([]);
-    const alarmas     = ref([]);
-    const clock       = ref('--:--:--');
+    const page = ref('proceso');
+    const connected = ref(false);
+    const lazos = ref(true);
+    const toasts = ref([]);
+    const alarmas = ref([]);
+    const clock = ref('--:--:--');
     const sidebarOpen = ref(true);
 
     const navItems = [
-      { key: 'proceso',    icon: '🏠', label: 'Inicio / Proceso' },
+      { key: 'proceso', icon: '🏠', label: 'Inicio / Proceso' },
       { key: 'inicio_prueba', icon: '📝', label: 'Inicio Prueba' },
-      { key: 'reportes',   icon: '📥', label: 'Reportes'         },
-      { key: 'data_cruda', icon: '📊', label: 'Data Cruda'       },
-      { key: 'rangos',     icon: '🔧', label: 'Conf. Instrum.'   },
-      { key: 'propiedades', icon: '🔧', label: 'Propiedades'},
+      { key: 'reportes', icon: '📥', label: 'Reportes' },
+      { key: 'data_cruda', icon: '📊', label: 'Data Cruda' },
+      { key: 'rangos', icon: '🔧', label: 'Conf. Instrum.' },
+      { key: 'propiedades', icon: '🔧', label: 'Propiedades' },
       { key: 'prueba_progreso', icon: '🔧', label: 'Prueba Progreso' },
-      { key: 'daq_config', icon: '📡', label: 'Config DAQ'       },
-      { key: 'hart_config', icon: '⚡', label: 'Config HART'     },
+      { key: 'daq_config', icon: '📡', label: 'Config DAQ' },
+      { key: 'hart_config', icon: '⚡', label: 'Config HART' },
     ];
 
     const proc = reactive({
-      FI_03:0, PI_01:0, TI_01:0, LI_01:0,
-      PDI_01:0, PDI_03:0, PDI_02_dp:0, PDI_02_psig:0,
-      TI_02:0, GAS_01:0, VI_01:0,
-      PCV_01_cv:0, LCV_01_cv:0, timestamp:'--'
+      FI_03: 0, PI_01: 0, TI_01: 0, LI_01: 0,
+      PDI_01: 0, PDI_03: 0, PDI_02_dp: 0, PDI_02_psig: 0,
+      TI_02: 0, GAS_01: 0, VI_01: 0,
+      PCV_01_cv: 0, LCV_01_cv: 0, timestamp: '--'
     });
-    const pid_p = reactive({ instrumento:'PIC-01', modo:'Manual', PV:0, CV:0, SP:0, CV_manual:0, Kp:1.2, Ki:0.08, Kd:0.05 });
-    const pid_n = reactive({ instrumento:'LIC-01', modo:'Manual', PV:0, CV:0, SP:0, CV_manual:0, Kp:1.0, Ki:0.10, Kd:0.02 });
-    const modalPid = reactive({ show:false, pid:'PIC-01' });
+    const pid_p = reactive({ instrumento: 'PIC-01', modo: 'Manual', PV: 0, CV: 0, SP: 0, CV_manual: 0, Kp: 1.2, Ki: 0.08, Kd: 0.05 });
+    const pid_n = reactive({ instrumento: 'LIC-01', modo: 'Manual', PV: 0, CV: 0, SP: 0, CV_manual: 0, Kp: 1.0, Ki: 0.10, Kd: 0.02 });
+    const modalPid = reactive({ show: false, pid: 'PIC-01' });
 
     let clockTimer;
     const tickClock = () => { clock.value = new Date().toLocaleTimeString('es-VE'); };
 
-    function showToast(msg, type='success') {
+    function showToast(msg, type = 'success') {
       const id = Date.now();
       toasts.value.push({ id, msg, type });
       setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id); }, 3000);
     }
 
     async function loadAlarmas() {
-      try { alarmas.value = await (await fetch('/api/alarmas')).json(); } catch(e) {}
+      try { alarmas.value = await (await fetch('/api/alarmas')).json(); } catch (e) { }
     }
 
     function openPid(tag) { modalPid.pid = tag; modalPid.show = true; }
@@ -211,23 +211,23 @@ const App = {
     async function savePid(payload) {
       try {
         const r = await fetch(`/api/pid/${payload.instrumento}`, {
-          method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
         });
         if (r.ok) {
           const d = await r.json();
-          Object.assign(payload.instrumento==='PIC-01' ? pid_p : pid_n, d);
+          Object.assign(payload.instrumento === 'PIC-01' ? pid_p : pid_n, d);
           showToast(`✅ ${payload.instrumento} guardado`);
           modalPid.show = false;
         }
-      } catch(e) { showToast('❌ Error al guardar','error'); }
+      } catch (e) { showToast('❌ Error al guardar', 'error'); }
     }
 
     async function toggleLazos() {
       try {
-        const d = await (await fetch('/api/lazos/deshabilitar',{method:'POST'})).json();
+        const d = await (await fetch('/api/lazos/deshabilitar', { method: 'POST' })).json();
         lazos.value = d.lazos_habilitados;
-        showToast(lazos.value ? '✅ Lazos habilitados' : '⚠️ Lazos deshabilitados', lazos.value?'success':'error');
-      } catch(e) {}
+        showToast(lazos.value ? '✅ Lazos habilitados' : '⚠️ Lazos deshabilitados', lazos.value ? 'success' : 'error');
+      } catch (e) { }
     }
 
     let socket;
@@ -235,25 +235,27 @@ const App = {
       loadAlarmas();
       clockTimer = setInterval(tickClock, 1000);
       tickClock();
-      socket = io({ transports:['websocket'], reconnectionDelay:1000 });
-      socket.on('connect',    () => { connected.value = true; });
+      socket = io({ transports: ['websocket'], reconnectionDelay: 1000 });
+      socket.on('connect', () => { connected.value = true; });
       socket.on('disconnect', () => { connected.value = false; });
       socket.on('process_data', d => {
-        Object.assign(proc,  d.process);
+        Object.assign(proc, d.process);
         Object.assign(pid_p, d.pid_presion);
         Object.assign(pid_n, d.pid_nivel);
         lazos.value = d.lazos_habilitados;
       });
-      socket.on('pid_updated', d => { Object.assign(d.instrumento==='PIC-01'?pid_p:pid_n, d); });
-      socket.on('pid_config',  d => {
+      socket.on('pid_updated', d => { Object.assign(d.instrumento === 'PIC-01' ? pid_p : pid_n, d); });
+      socket.on('pid_config', d => {
         if (d['PIC-01']) Object.assign(pid_p, d['PIC-01']);
         if (d['LIC-01']) Object.assign(pid_n, d['LIC-01']);
       });
     });
     onUnmounted(() => { clearInterval(clockTimer); if (socket) socket.disconnect(); });
 
-    return { page, connected, lazos, toasts, alarmas, clock, proc, pid_p, pid_n, modalPid,
-             sidebarOpen, navItems, openPid, savePid, toggleLazos, loadAlarmas, showToast };
+    return {
+      page, connected, lazos, toasts, alarmas, clock, proc, pid_p, pid_n, modalPid,
+      sidebarOpen, navItems, openPid, savePid, toggleLazos, loadAlarmas, showToast
+    };
   }
 };
 
@@ -262,7 +264,7 @@ const App = {
 // ═══════════════════════════════════════════════════════════════
 const ProcesoPage = {
   name: 'ProcesoPage',
-  props: ['proc','pid_p','pid_n','alarmas','lazos'],
+  props: ['proc', 'pid_p', 'pid_n', 'alarmas', 'lazos'],
   emits: ['open-pid'],
   template: `
   <div class="flex flex-col h-full overflow-hidden">
@@ -395,7 +397,7 @@ const ProcesoPage = {
 
   setup(props) {
     const imgError = ref(false);
-    const fmt = (v, d=2) => (v !== undefined && v !== null) ? parseFloat(v).toFixed(d) : '—';
+    const fmt = (v, d = 2) => (v !== undefined && v !== null) ? parseFloat(v).toFixed(d) : '—';
 
     const alarmMap = computed(() => {
       const m = {};
@@ -404,7 +406,7 @@ const ProcesoPage = {
     });
 
     function alarmCls(key) {
-      const tagMap = { FI_03:'FI-03', PI_01:'PI-01', TI_01:'TI-01', LI_01:'LI-01', TI_02:'TI-02', VI_01:'VI-01' };
+      const tagMap = { FI_03: 'FI-03', PI_01: 'PI-01', TI_01: 'TI-01', LI_01: 'LI-01', TI_02: 'TI-02', VI_01: 'VI-01' };
       const tag = tagMap[key];
       if (!tag) return '';
       return alarmClass(props.proc[key], alarmMap.value[tag]);
@@ -524,31 +526,31 @@ const DataCrudaPage = {
 
   setup(props) {
     const chartCanvas = ref(null);
-    const paused      = ref(false);
-    const windowSize  = ref(120);  // puntos mostrados
+    const paused = ref(false);
+    const windowSize = ref(120);  // puntos mostrados
     let chartInstance = null;
 
     const variables = reactive([
-      { key:'FI_03',  label:'FI-03 Caudal Gas',    unit:'MSCFD', color:'#5ac8d4', active:true,  decimals:2, min:0, max:10  },
-      { key:'PI_01',  label:'PI-01 Presión',        unit:'PSIG',  color:'#e6a817', active:true,  decimals:1, min:0, max:500 },
-      { key:'TI_01',  label:'TI-01 Temperatura',    unit:'°C',    color:'#e67e22', active:true,  decimals:2, min:0, max:100 },
-      { key:'LI_01',  label:'LI-01 Nivel',          unit:'%',     color:'#27a766', active:true,  decimals:1, min:0, max:100 },
-      { key:'TI_02',  label:'TI-02 Temp. Fondo',    unit:'°C',    color:'#c0392b', active:false, decimals:1, min:0, max:100 },
-      { key:'GAS_01', label:'%GAS-01 Fracción Gas', unit:'%',     color:'#9b59b6', active:false, decimals:1, min:0, max:100 },
-      { key:'VI_01',  label:'VI-01 Viscosidad',     unit:'CP',    color:'#3498db', active:false, decimals:1, min:0, max:200 },
+      { key: 'FI_03', label: 'FI-03 Caudal Gas', unit: 'MSCFD', color: '#5ac8d4', active: true, decimals: 2, min: 0, max: 10 },
+      { key: 'PI_01', label: 'PI-01 Presión', unit: 'PSIG', color: '#e6a817', active: true, decimals: 1, min: 0, max: 500 },
+      { key: 'TI_01', label: 'TI-01 Temperatura', unit: '°C', color: '#e67e22', active: true, decimals: 2, min: 0, max: 100 },
+      { key: 'LI_01', label: 'LI-01 Nivel', unit: '%', color: '#27a766', active: true, decimals: 1, min: 0, max: 100 },
+      { key: 'TI_02', label: 'TI-02 Temp. Fondo', unit: '°C', color: '#c0392b', active: false, decimals: 1, min: 0, max: 100 },
+      { key: 'GAS_01', label: '%GAS-01 Fracción Gas', unit: '%', color: '#9b59b6', active: false, decimals: 1, min: 0, max: 100 },
+      { key: 'VI_01', label: 'VI-01 Viscosidad', unit: 'CP', color: '#3498db', active: false, decimals: 1, min: 0, max: 200 },
     ]);
 
     // Historia de cada variable
     const historyLabels = ref([]);
-    const historyData   = reactive({});
-    const histStats     = reactive({});
+    const historyData = reactive({});
+    const histStats = reactive({});
 
     variables.forEach(v => {
       historyData[v.key] = [];
-      histStats[v.key]   = null;
+      histStats[v.key] = null;
     });
 
-    function fmtVal(val, d=2) {
+    function fmtVal(val, d = 2) {
       if (val === undefined || val === null) return '—';
       return parseFloat(val).toFixed(d);
     }
@@ -562,7 +564,7 @@ const DataCrudaPage = {
       historyLabels.value = [];
       variables.forEach(v => {
         historyData[v.key] = [];
-        histStats[v.key]   = null;
+        histStats[v.key] = null;
       });
       if (chartInstance) {
         chartInstance.data.labels = [];
@@ -619,14 +621,14 @@ const DataCrudaPage = {
           },
           scales: {
             x: {
-              grid:  { color: 'rgba(255,255,255,0.05)' },
-              ticks: { color: '#6b7280', font: { family:'Roboto Mono', size:10 }, maxTicksLimit: 10 },
-              border:{ color: '#30363d' },
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#6b7280', font: { family: 'Roboto Mono', size: 10 }, maxTicksLimit: 10 },
+              border: { color: '#30363d' },
             },
             y: {
-              grid:  { color: 'rgba(255,255,255,0.05)' },
-              ticks: { color: '#6b7280', font: { family:'Roboto Mono', size:10 } },
-              border:{ color: '#30363d' },
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#6b7280', font: { family: 'Roboto Mono', size: 10 } },
+              border: { color: '#30363d' },
             },
           },
         },
@@ -636,7 +638,7 @@ const DataCrudaPage = {
     function updateChart() {
       if (!chartInstance) return;
       chartInstance.data.datasets = buildDatasets();
-      chartInstance.data.labels   = [...historyLabels.value];
+      chartInstance.data.labels = [...historyLabels.value];
       chartInstance.update('none');
     }
 
@@ -644,7 +646,7 @@ const DataCrudaPage = {
     let ticker = null;
     watch(() => props.proc.timestamp, () => {
       if (paused.value) return;
-      const now  = new Date().toLocaleTimeString('es-VE');
+      const now = new Date().toLocaleTimeString('es-VE');
       const maxPts = windowSize.value;
 
       historyLabels.value.push(now);
@@ -684,8 +686,8 @@ const DataCrudaPage = {
 // ═══════════════════════════════════════════════════════════════
 const PidModal = {
   name: 'PidModal',
-  props: ['pid','tag'],
-  emits: ['close','save'],
+  props: ['pid', 'tag'],
+  emits: ['close', 'save'],
   template: `
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal">
@@ -745,15 +747,17 @@ const PidModal = {
   </div>`,
 
   setup(props, { emit }) {
-    const fmt = (v,d=2) => parseFloat(v||0).toFixed(d);
+    const fmt = (v, d = 2) => parseFloat(v || 0).toFixed(d);
     const form = reactive({
       SP: props.pid.SP, modo: props.pid.modo,
       CV_manual: props.pid.CV_manual, SP_manual: props.pid.SP,
       Kp: props.pid.Kp, Ki: props.pid.Ki, Kd: props.pid.Kd,
     });
     function save() {
-      emit('save', { instrumento:props.tag, SP:form.SP, modo:form.modo,
-        CV_manual:form.CV_manual, Kp:form.Kp, Ki:form.Ki, Kd:form.Kd });
+      emit('save', {
+        instrumento: props.tag, SP: form.SP, modo: form.modo,
+        CV_manual: form.CV_manual, Kp: form.Kp, Ki: form.Ki, Kd: form.Kd
+      });
     }
     return { fmt, form, save };
   }
@@ -765,7 +769,7 @@ const PidModal = {
 const RangosPage = {
   name: 'RangosPage',
   props: ['alarmas'],
-  emits: ['saved','toast'],
+  emits: ['saved', 'toast'],
   template: `
   <div class="p-4">
     <div class="page-header">
@@ -811,10 +815,10 @@ const RangosPage = {
     async function saveRow(row) {
       try {
         const r = await fetch(`/api/alarmas/${row.instrumento}`, {
-          method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(row)
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(row)
         });
         if (r.ok) { emit('saved'); emit('toast', `✅ ${row.instrumento} guardado`); }
-      } catch(e) { emit('toast','❌ Error al guardar','error'); }
+      } catch (e) { emit('toast', '❌ Error al guardar', 'error'); }
     }
 
     return { localRows, saveRow };
@@ -960,7 +964,7 @@ const InicioPruebaPage = {
   `,
   setup() {
     const showForm = ref(false);
-    
+
     const config = reactive({
       reporte: '116-1998-196-BM7-171',
       numReporte: '117',
@@ -976,7 +980,7 @@ const InicioPruebaPage = {
       caudalDiluente: '0'
     });
 
-    const form = reactive({...config});
+    const form = reactive({ ...config });
 
     function saveForm() {
       Object.assign(config, form);
@@ -989,9 +993,9 @@ const InicioPruebaPage = {
 
     // Inicializamos con valores similares a la UI al cargar
     onMounted(() => {
-        const d = new Date();
-        sysDate.value = d.toLocaleDateString();
-        startHour.value = d.toLocaleTimeString();
+      const d = new Date();
+      sysDate.value = d.toLocaleDateString();
+      startHour.value = d.toLocaleTimeString();
     });
 
     return { showForm, config, form, saveForm, sysDate, startHour, elapsedTime };
@@ -1057,14 +1061,14 @@ const ReportesPage = {
   `,
   setup() {
     const d = new Date();
-    const tzOffset = d.getTimezoneOffset() * 60000; 
+    const tzOffset = d.getTimezoneOffset() * 60000;
     const localISO = new Date(d.getTime() - tzOffset).toISOString();
     const todayStr = localISO.split('T')[0];
-    
+
     // Iniciar el día a las 00:00 y fin a 23:59
     const fechaInicio = ref(todayStr);
     const horaInicio = ref('00:00');
-    
+
     const fechaFin = ref(todayStr);
     const horaFin = ref('23:59');
 
@@ -1179,114 +1183,118 @@ const PruebaProgresoPage = {
     const paused = ref(false), pausedL = ref(false), pausedS = ref(false);
     let charts = [null, null, null];
 
-    const data = reactive({ reporte:'REP-2026-001', fechaInicio:'08/05/2026', horaInicio:'10:30:15', metodo:'Coriolis', pozo:'BA-145', tiempoTranscurrido:'02:15:30', rpmBomba:'1250', api:'22.5', inyeccionDiluente:'15.2' });
+    const data = reactive({ reporte: 'REP-2026-001', fechaInicio: '08/05/2026', horaInicio: '10:30:15', metodo: 'Coriolis', pozo: 'BA-145', tiempoTranscurrido: '02:15:30', rpmBomba: '1250', api: '22.5', inyeccionDiluente: '15.2' });
 
     const trendVars = reactive([
-      { key:'LI_01',  label:'Corte Agua', color:'#27a766', active:true },
-      { key:'GAS_01', label:'GVF',        color:'#9b59b6', active:true },
-      { key:'TI_01',  label:'T.Gas',      color:'#5ac8d4', active:true },
-      { key:'PI_01',  label:'Presión',    color:'#e6a817', active:true },
-      { key:'VI_01',  label:'Viscosidad', color:'#3498db', active:false },
+      { key: 'LI_01', label: 'Corte Agua', color: '#27a766', active: true },
+      { key: 'GAS_01', label: 'GVF', color: '#9b59b6', active: true },
+      { key: 'TI_01', label: 'T.Gas', color: '#5ac8d4', active: true },
+      { key: 'PI_01', label: 'Presión', color: '#e6a817', active: true },
+      { key: 'VI_01', label: 'Viscosidad', color: '#3498db', active: false },
     ]);
 
     const lineaVars = [
-      { key:'LI_01', label:'Vol. Líquido', color:'#27a766' },
-      { key:'PI_01', label:'Vol. Crudo',   color:'#e6a817' },
-      { key:'FI_03', label:'Vol. Gas',     color:'#5ac8d4' },
+      { key: 'LI_01', label: 'Vol. Líquido', color: '#27a766' },
+      { key: 'PI_01', label: 'Vol. Crudo', color: '#e6a817' },
+      { key: 'FI_03', label: 'Vol. Gas', color: '#5ac8d4' },
     ];
     const estVars = [
-      { key:'LI_01', label:'Vol. Líq. Est', color:'#27a766' },
-      { key:'PI_01', label:'Vol. Crud. Est', color:'#e6a817' },
-      { key:'FI_03', label:'Vol. Gas Est',  color:'#5ac8d4' },
+      { key: 'LI_01', label: 'Vol. Líq. Est', color: '#27a766' },
+      { key: 'PI_01', label: 'Vol. Crud. Est', color: '#e6a817' },
+      { key: 'FI_03', label: 'Vol. Gas Est', color: '#5ac8d4' },
     ];
 
     const params = computed(() => [
-      { label:'Corte de Agua (%)',        value:(parseFloat(props.proc.LI_01)/2).toFixed(3) },
-      { label:'GVF (%)',                  value:parseFloat(props.proc.GAS_01||0).toFixed(3) },
-      { label:'Temp. Gas (ºC)',           value:parseFloat(props.proc.TI_01||0).toFixed(3) },
-      { label:'Temp. Mezcla (ºC)',        value:parseFloat(props.proc.TI_02||0).toFixed(3) },
-      { label:'Presión en Línea (PSI)',   value:parseFloat(props.proc.PI_01||0).toFixed(1) },
-      { label:'Viscosidad (cP)',          value:parseFloat(props.proc.VI_01||0).toFixed(1) },
-      { label:'RGP',                      value:(parseFloat(props.proc.FI_03||0)*12.5).toFixed(3) },
-      { label:'RGP NETO',                 value:(parseFloat(props.proc.FI_03||0)*11.2).toFixed(3) },
+      { label: 'Corte de Agua (%)', value: (parseFloat(props.proc.LI_01) / 2).toFixed(3) },
+      { label: 'GVF (%)', value: parseFloat(props.proc.GAS_01 || 0).toFixed(3) },
+      { label: 'Temp. Gas (ºC)', value: parseFloat(props.proc.TI_01 || 0).toFixed(3) },
+      { label: 'Temp. Mezcla (ºC)', value: parseFloat(props.proc.TI_02 || 0).toFixed(3) },
+      { label: 'Presión en Línea (PSI)', value: parseFloat(props.proc.PI_01 || 0).toFixed(1) },
+      { label: 'Viscosidad (cP)', value: parseFloat(props.proc.VI_01 || 0).toFixed(1) },
+      { label: 'RGP', value: (parseFloat(props.proc.FI_03 || 0) * 12.5).toFixed(3) },
+      { label: 'RGP NETO', value: (parseFloat(props.proc.FI_03 || 0) * 11.2).toFixed(3) },
     ]);
 
     const condLinea = computed(() => [
-      { label:'Vol. Líquido (BBLS)',            value:(parseFloat(props.proc.LI_01||0)*0.1).toFixed(3) },
-      { label:'Vol. Crudo (BBLS)',              value:(parseFloat(props.proc.PI_01||0)*0.05).toFixed(3) },
-      { label:'Vol. Crudo Neto (BBLS)',         value:(parseFloat(props.proc.PI_01||0)*0.045).toFixed(3) },
-      { label:'Vol. Diluente (BBLS)',           value:'0.000' },
-      { label:'Vol. Agua (BBLS)',               value:(parseFloat(props.proc.LI_01||0)*0.02).toFixed(3) },
-      { label:'Vol. Gas Arrastrado (CF)',       value:(parseFloat(props.proc.GAS_01||0)*1.2).toFixed(3) },
-      { label:'Vol. Gas Total (MCF)',           value:(parseFloat(props.proc.FI_03||0)*0.8).toFixed(3) },
-      { label:'Tasa Est. Líquido (BPD)',        value:(parseFloat(props.proc.LI_01||0)*2.4).toFixed(3) },
-      { label:'Tasa Est. Crudo (BPD)',          value:(parseFloat(props.proc.PI_01||0)*1.2).toFixed(3) },
-      { label:'Tasa Est. Crudo Neto (BPD)',     value:(parseFloat(props.proc.PI_01||0)*1.08).toFixed(3) },
-      { label:'Tasa Est. Diluente (BPD)',       value:'0.000' },
-      { label:'Tasa Est. Agua (BPD)',           value:(parseFloat(props.proc.LI_01||0)*0.48).toFixed(3) },
-      { label:'Tasa Est. Gas Arrastrado (CFD)', value:(parseFloat(props.proc.GAS_01||0)*28.8).toFixed(3) },
-      { label:'Tasa Est. Gas Total (MCFD)',     value:(parseFloat(props.proc.FI_03||0)*19.2).toFixed(3) },
+      { label: 'Vol. Líquido (BBLS)', value: (parseFloat(props.proc.LI_01 || 0) * 0.1).toFixed(3) },
+      { label: 'Vol. Crudo (BBLS)', value: (parseFloat(props.proc.PI_01 || 0) * 0.05).toFixed(3) },
+      { label: 'Vol. Crudo Neto (BBLS)', value: (parseFloat(props.proc.PI_01 || 0) * 0.045).toFixed(3) },
+      { label: 'Vol. Diluente (BBLS)', value: '0.000' },
+      { label: 'Vol. Agua (BBLS)', value: (parseFloat(props.proc.LI_01 || 0) * 0.02).toFixed(3) },
+      { label: 'Vol. Gas Arrastrado (CF)', value: (parseFloat(props.proc.GAS_01 || 0) * 1.2).toFixed(3) },
+      { label: 'Vol. Gas Total (MCF)', value: (parseFloat(props.proc.FI_03 || 0) * 0.8).toFixed(3) },
+      { label: 'Tasa Est. Líquido (BPD)', value: (parseFloat(props.proc.LI_01 || 0) * 2.4).toFixed(3) },
+      { label: 'Tasa Est. Crudo (BPD)', value: (parseFloat(props.proc.PI_01 || 0) * 1.2).toFixed(3) },
+      { label: 'Tasa Est. Crudo Neto (BPD)', value: (parseFloat(props.proc.PI_01 || 0) * 1.08).toFixed(3) },
+      { label: 'Tasa Est. Diluente (BPD)', value: '0.000' },
+      { label: 'Tasa Est. Agua (BPD)', value: (parseFloat(props.proc.LI_01 || 0) * 0.48).toFixed(3) },
+      { label: 'Tasa Est. Gas Arrastrado (CFD)', value: (parseFloat(props.proc.GAS_01 || 0) * 28.8).toFixed(3) },
+      { label: 'Tasa Est. Gas Total (MCFD)', value: (parseFloat(props.proc.FI_03 || 0) * 19.2).toFixed(3) },
     ]);
 
     const condEstandar = computed(() => [
-      { label:'Vol. Líquido (BBLS)',            value:(parseFloat(props.proc.LI_01||0)*0.098).toFixed(3) },
-      { label:'Vol. Crudo (BBLS)',              value:(parseFloat(props.proc.PI_01||0)*0.049).toFixed(3) },
-      { label:'Vol. Crudo Neto (BBLS)',         value:(parseFloat(props.proc.PI_01||0)*0.044).toFixed(3) },
-      { label:'Vol. Diluente (BBLS)',           value:'0.000' },
-      { label:'Vol. Agua (BBLS)',               value:(parseFloat(props.proc.LI_01||0)*0.019).toFixed(3) },
-      { label:'Vol. Gas Arrastrado (CF)',       value:(parseFloat(props.proc.GAS_01||0)*1.15).toFixed(3) },
-      { label:'Vol. Gas Total (MCF)',           value:(parseFloat(props.proc.FI_03||0)*0.76).toFixed(3) },
-      { label:'Tasa Est. Líquido (BPD)',        value:(parseFloat(props.proc.LI_01||0)*2.35).toFixed(3) },
-      { label:'Tasa Est. Crudo (BPD)',          value:(parseFloat(props.proc.PI_01||0)*1.17).toFixed(3) },
-      { label:'Tasa Est. Crudo Neto (BPD)',     value:(parseFloat(props.proc.PI_01||0)*1.05).toFixed(3) },
-      { label:'Tasa Est. Diluente (BPD)',       value:'0.000' },
-      { label:'Tasa Est. Agua (BPD)',           value:(parseFloat(props.proc.LI_01||0)*0.46).toFixed(3) },
-      { label:'Tasa Est. Gas Arrastrado (CFD)', value:(parseFloat(props.proc.GAS_01||0)*27.6).toFixed(3) },
-      { label:'Tasa Est. Gas Total (MCFD)',     value:(parseFloat(props.proc.FI_03||0)*18.2).toFixed(3) },
+      { label: 'Vol. Líquido (BBLS)', value: (parseFloat(props.proc.LI_01 || 0) * 0.098).toFixed(3) },
+      { label: 'Vol. Crudo (BBLS)', value: (parseFloat(props.proc.PI_01 || 0) * 0.049).toFixed(3) },
+      { label: 'Vol. Crudo Neto (BBLS)', value: (parseFloat(props.proc.PI_01 || 0) * 0.044).toFixed(3) },
+      { label: 'Vol. Diluente (BBLS)', value: '0.000' },
+      { label: 'Vol. Agua (BBLS)', value: (parseFloat(props.proc.LI_01 || 0) * 0.019).toFixed(3) },
+      { label: 'Vol. Gas Arrastrado (CF)', value: (parseFloat(props.proc.GAS_01 || 0) * 1.15).toFixed(3) },
+      { label: 'Vol. Gas Total (MCF)', value: (parseFloat(props.proc.FI_03 || 0) * 0.76).toFixed(3) },
+      { label: 'Tasa Est. Líquido (BPD)', value: (parseFloat(props.proc.LI_01 || 0) * 2.35).toFixed(3) },
+      { label: 'Tasa Est. Crudo (BPD)', value: (parseFloat(props.proc.PI_01 || 0) * 1.17).toFixed(3) },
+      { label: 'Tasa Est. Crudo Neto (BPD)', value: (parseFloat(props.proc.PI_01 || 0) * 1.05).toFixed(3) },
+      { label: 'Tasa Est. Diluente (BPD)', value: '0.000' },
+      { label: 'Tasa Est. Agua (BPD)', value: (parseFloat(props.proc.LI_01 || 0) * 0.46).toFixed(3) },
+      { label: 'Tasa Est. Gas Arrastrado (CFD)', value: (parseFloat(props.proc.GAS_01 || 0) * 27.6).toFixed(3) },
+      { label: 'Tasa Est. Gas Total (MCFD)', value: (parseFloat(props.proc.FI_03 || 0) * 18.2).toFixed(3) },
     ]);
 
-    const hist = reactive({ labels:[], data:{} });
-    const histL = reactive({ labels:[], data:{} });
-    const histS = reactive({ labels:[], data:{} });
-    trendVars.forEach(v => hist.data[v.key]=[]);
-    lineaVars.forEach(v => histL.data[v.key]=[]);
-    estVars.forEach(v => histS.data[v.key]=[]);
+    const hist = reactive({ labels: [], data: {} });
+    const histL = reactive({ labels: [], data: {} });
+    const histS = reactive({ labels: [], data: {} });
+    trendVars.forEach(v => hist.data[v.key] = []);
+    lineaVars.forEach(v => histL.data[v.key] = []);
+    estVars.forEach(v => histS.data[v.key] = []);
 
-    const chartOpts = { responsive:true, maintainAspectRatio:false, animation:{duration:0}, plugins:{legend:{display:false}},
-      scales:{ x:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#9aa3af',font:{size:10},maxTicksLimit:8}},
-               y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#9aa3af',font:{size:10}}} } };
+    const chartOpts = {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 0 }, plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#9aa3af', font: { size: 10 }, maxTicksLimit: 8 } },
+        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#9aa3af', font: { size: 10 } } }
+      }
+    };
 
     function mkDS(vars, histObj) {
-      return vars.map(v => ({ label:v.label, data:[...histObj.data[v.key]], borderColor:v.color, borderWidth:1.5, pointRadius:0, fill:false, tension:0.3, hidden:v.active===false }));
+      return vars.map(v => ({ label: v.label, data: [...histObj.data[v.key]], borderColor: v.color, borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.3, hidden: v.active === false }));
     }
 
     function initCharts() {
-      if(c0.value) charts[0]=new Chart(c0.value,{type:'line',data:{labels:[],datasets:mkDS(trendVars,hist)},options:chartOpts});
-      if(c1.value) charts[1]=new Chart(c1.value,{type:'line',data:{labels:[],datasets:mkDS(lineaVars,histL)},options:chartOpts});
-      if(c2.value) charts[2]=new Chart(c2.value,{type:'line',data:{labels:[],datasets:mkDS(estVars,histS)},options:chartOpts});
+      if (c0.value) charts[0] = new Chart(c0.value, { type: 'line', data: { labels: [], datasets: mkDS(trendVars, hist) }, options: chartOpts });
+      if (c1.value) charts[1] = new Chart(c1.value, { type: 'line', data: { labels: [], datasets: mkDS(lineaVars, histL) }, options: chartOpts });
+      if (c2.value) charts[2] = new Chart(c2.value, { type: 'line', data: { labels: [], datasets: mkDS(estVars, histS) }, options: chartOpts });
     }
 
     function rebuildCharts() {
-      if(charts[0]){ charts[0].data.datasets=mkDS(trendVars,hist); charts[0].update('none'); }
+      if (charts[0]) { charts[0].data.datasets = mkDS(trendVars, hist); charts[0].update('none'); }
     }
 
     function pushPt(now) {
-      const MAX=50;
-      if(!paused.value){ hist.labels.push(now); if(hist.labels.length>MAX) hist.labels.shift(); trendVars.forEach(v=>{hist.data[v.key].push(parseFloat(props.proc[v.key]||0));if(hist.data[v.key].length>MAX)hist.data[v.key].shift();}); if(charts[0]){charts[0].data.labels=[...hist.labels];charts[0].data.datasets=mkDS(trendVars,hist);charts[0].update('none');} }
-      if(!pausedL.value){ histL.labels.push(now); if(histL.labels.length>MAX) histL.labels.shift(); lineaVars.forEach(v=>{histL.data[v.key].push(parseFloat(props.proc[v.key]||0));if(histL.data[v.key].length>MAX)histL.data[v.key].shift();}); if(charts[1]){charts[1].data.labels=[...histL.labels];charts[1].data.datasets=mkDS(lineaVars,histL);charts[1].update('none');} }
-      if(!pausedS.value){ histS.labels.push(now); if(histS.labels.length>MAX) histS.labels.shift(); estVars.forEach(v=>{histS.data[v.key].push(parseFloat(props.proc[v.key]||0));if(histS.data[v.key].length>MAX)histS.data[v.key].shift();}); if(charts[2]){charts[2].data.labels=[...histS.labels];charts[2].data.datasets=mkDS(estVars,histS);charts[2].update('none');} }
+      const MAX = 50;
+      if (!paused.value) { hist.labels.push(now); if (hist.labels.length > MAX) hist.labels.shift(); trendVars.forEach(v => { hist.data[v.key].push(parseFloat(props.proc[v.key] || 0)); if (hist.data[v.key].length > MAX) hist.data[v.key].shift(); }); if (charts[0]) { charts[0].data.labels = [...hist.labels]; charts[0].data.datasets = mkDS(trendVars, hist); charts[0].update('none'); } }
+      if (!pausedL.value) { histL.labels.push(now); if (histL.labels.length > MAX) histL.labels.shift(); lineaVars.forEach(v => { histL.data[v.key].push(parseFloat(props.proc[v.key] || 0)); if (histL.data[v.key].length > MAX) histL.data[v.key].shift(); }); if (charts[1]) { charts[1].data.labels = [...histL.labels]; charts[1].data.datasets = mkDS(lineaVars, histL); charts[1].update('none'); } }
+      if (!pausedS.value) { histS.labels.push(now); if (histS.labels.length > MAX) histS.labels.shift(); estVars.forEach(v => { histS.data[v.key].push(parseFloat(props.proc[v.key] || 0)); if (histS.data[v.key].length > MAX) histS.data[v.key].shift(); }); if (charts[2]) { charts[2].data.labels = [...histS.labels]; charts[2].data.datasets = mkDS(estVars, histS); charts[2].update('none'); } }
     }
 
     function clearHistory() {
-      hist.labels=[]; trendVars.forEach(v=>hist.data[v.key]=[]);
-      histL.labels=[]; lineaVars.forEach(v=>histL.data[v.key]=[]);
-      histS.labels=[]; estVars.forEach(v=>histS.data[v.key]=[]);
-      charts.forEach(ch=>{if(ch){ch.data.labels=[];ch.data.datasets.forEach(d=>d.data=[]);ch.update('none');}});
+      hist.labels = []; trendVars.forEach(v => hist.data[v.key] = []);
+      histL.labels = []; lineaVars.forEach(v => histL.data[v.key] = []);
+      histS.labels = []; estVars.forEach(v => histS.data[v.key] = []);
+      charts.forEach(ch => { if (ch) { ch.data.labels = []; ch.data.datasets.forEach(d => d.data = []); ch.update('none'); } });
     }
 
-    watch(()=>props.proc.timestamp, ()=>{ pushPt(new Date().toLocaleTimeString('es-VE')); });
-    onMounted(()=>{ nextTick(()=>initCharts()); });
-    onUnmounted(()=>{ charts.forEach(ch=>{if(ch)ch.destroy();}); });
+    watch(() => props.proc.timestamp, () => { pushPt(new Date().toLocaleTimeString('es-VE')); });
+    onMounted(() => { nextTick(() => initCharts()); });
+    onUnmounted(() => { charts.forEach(ch => { if (ch) ch.destroy(); }); });
 
     return { data, params, condLinea, condEstandar, trendVars, c0, c1, c2, paused, pausedL, pausedS, clearHistory, rebuildCharts };
   }
@@ -1542,13 +1550,13 @@ const PvtPage = {
 
     const balanceRows = [
       { label: 'API Formación @60ºF', key: 'apiForm' },
-      { label: 'API Mezcla @60ºF',     key: 'apiMez'  },
-      { label: 'API Diluente @60ºF',   key: 'apiDil'  },
-      { label: 'Q Diluente BBDL',      key: 'qDil'    },
-      { label: 'Q Neto BBDL',          key: 'qNet'    },
+      { label: 'API Mezcla @60ºF', key: 'apiMez' },
+      { label: 'API Diluente @60ºF', key: 'apiDil' },
+      { label: 'Q Diluente BBDL', key: 'qDil' },
+      { label: 'Q Neto BBDL', key: 'qNet' },
       { label: 'Q Neto + Diluente BBDL', key: 'qNetDil' },
-      { label: 'Q Agua BBDL',          key: 'qAgua'   },
-      { label: 'Q Total BBDL',         key: 'qTotal'  }
+      { label: 'Q Agua BBDL', key: 'qAgua' },
+      { label: 'Q Total BBDL', key: 'qTotal' }
     ];
 
     const showPvtModal = ref(false);
@@ -1560,7 +1568,7 @@ const PvtPage = {
     }
 
     function cargarDatos() { showPvtModal.value = true; }
-    
+
     function onPvtModalSave(data) {
       pvt.rso = data.rso;
       pvt.bo = data.bo;
@@ -1880,17 +1888,17 @@ const DaqConfigPage = {
   </div>`,
 
   setup() {
-    const live       = reactive({
-      connected: false, port:'COM3', baudrate:9600, slave_id:1,
-      simulating:false, channels:[], ts:'--',
-      last_error:'', retry_in_s: 0, stale: false, data_age_s: 0,
+    const live = reactive({
+      connected: false, port: 'COM3', baudrate: 9600, slave_id: 1,
+      simulating: false, channels: [], ts: '--',
+      last_error: '', retry_in_s: 0, stale: false, data_age_s: 0,
     });
-    const connForm      = reactive({ port:'COM3', baudrate:9600, slave_id:1 });
-    const dbConfig      = ref([]);
-    const editingCh     = ref(null);
-    const editForms     = reactive({});
-    const toast         = reactive({ show:false, ok:true, msg:'' });
-    const reconnecting  = ref(false);
+    const connForm = reactive({ port: 'COM3', baudrate: 9600, slave_id: 1 });
+    const dbConfig = ref([]);
+    const editingCh = ref(null);
+    const editForms = reactive({});
+    const toast = reactive({ show: false, ok: true, msg: '' });
+    const reconnecting = ref(false);
 
     // Flag: el usuario editó connForm y no ha guardado aun
     // (variable JS simple, no necesita ser reactiva)
@@ -1907,23 +1915,23 @@ const DaqConfigPage = {
       if (Array.isArray(live.channels) && live.channels.length > 0) {
         return live.channels.map(ch => ({
           ...ch,
-          desc:  (byAddr[ch.ch] || {}).description || ch.desc,
-          scale: (byAddr[ch.ch] || {}).scale       || 1000,
-          v_name:(byAddr[ch.ch] || {}).v_name      || ch.var,
+          desc: (byAddr[ch.ch] || {}).description || ch.desc,
+          scale: (byAddr[ch.ch] || {}).scale || 1000,
+          v_name: (byAddr[ch.ch] || {}).v_name || ch.var,
         }));
       }
 
       // Fallback estático solo si aún no llegó ningún dato del backend
       return Array.from({ length: 6 }, (_, i) => ({
         ch: i,
-        desc:  (byAddr[i] || {}).description || `CH:0${i} — esperando...`,
+        desc: (byAddr[i] || {}).description || `CH:0${i} — esperando...`,
         raw: null, ma: null, open_wire: false,   // false para no mostrar error al cargar
         var: (byAddr[i] || {}).v_name || '',
         scale: (byAddr[i] || {}).scale || 1000,
       }));
     });
 
-    function showToast(msg, ok=true) {
+    function showToast(msg, ok = true) {
       toast.msg = msg; toast.ok = ok; toast.show = true;
       setTimeout(() => { toast.show = false; }, 2500);
     }
@@ -1931,48 +1939,48 @@ const DaqConfigPage = {
     async function loadLive() {
       try {
         const d = await (await fetch('/api/daq/live')).json();
-        live.connected  = d.connected;
+        live.connected = d.connected;
         live.simulating = d.simulating;
-        live.channels   = d.channels;
-        live.ts         = d.ts;
+        live.channels = d.channels;
+        live.ts = d.ts;
         live.last_error = d.last_error || '';
         live.retry_in_s = d.retry_in_s ?? 0;
-        live.stale      = d.stale ?? false;
+        live.stale = d.stale ?? false;
         live.data_age_s = d.data_age_s ?? 0;
         // Sincronizar parámetros de conexión SOLO si el usuario no está editando
         if (!_connFormDirty) {
-          live.port     = d.port;
+          live.port = d.port;
           live.baudrate = d.baudrate;
           live.slave_id = d.slave_id;
-          connForm.port     = d.port;
+          connForm.port = d.port;
           connForm.baudrate = d.baudrate;
           connForm.slave_id = d.slave_id;
         }
-      } catch(e) { console.error('DAQ live error:', e); }
+      } catch (e) { console.error('DAQ live error:', e); }
     }
 
     async function loadDbConfig() {
       try {
         const d = await (await fetch('/api/daq/config')).json();
         dbConfig.value = d;
-      } catch(e) {}
+      } catch (e) { }
     }
 
     // Carga la config de conexión guardada en BD y la pone en connForm
     async function loadConnConfig() {
       try {
         const d = await (await fetch('/api/daq/connection')).json();
-        connForm.port     = d.port     || 'COM3';
+        connForm.port = d.port || 'COM3';
         connForm.baudrate = d.baudrate || 9600;
         connForm.slave_id = d.slave_id || 1;
         _connFormDirty = false;  // recién cargado de BD, no es dirty
-      } catch(e) {}
+      } catch (e) { }
     }
 
     async function saveConnection() {
       try {
         const r = await fetch('/api/daq/connection', {
-          method:'POST', headers:{'Content-Type':'application/json'},
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(connForm),
         });
         if (r.ok) {
@@ -1980,7 +1988,7 @@ const DaqConfigPage = {
           showToast('✅ Parámetros guardados en BD — reconectando...');
           await loadLive();
         } else showToast('❌ Error al guardar', false);
-      } catch(e) { showToast('❌ Error de red', false); }
+      } catch (e) { showToast('❌ Error de red', false); }
     }
 
     // Fuerza reconexión inmediata con los parámetros actuales del módulo
@@ -1989,14 +1997,14 @@ const DaqConfigPage = {
       try {
         // Enviar POST con los parámetros actuales para forzar reconexión limpia
         await fetch('/api/daq/connection', {
-          method:'POST', headers:{'Content-Type':'application/json'},
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(connForm),
         });
         showToast('🔄 Forzando reconexión...');
         // Esperar 1.5 s para que el ciclo PLC intente conectar
         await new Promise(res => setTimeout(res, 1500));
         await loadLive();
-      } catch(e) {
+      } catch (e) {
         showToast('❌ Error al reconectar', false);
       } finally {
         reconnecting.value = false;
@@ -2007,8 +2015,8 @@ const DaqConfigPage = {
       editingCh.value = ch.ch;
       editForms[ch.ch] = {
         description: ch.desc || '',
-        v_name:      ch.var  || ch.v_name || '',
-        scale:       ch.scale || 1000,
+        v_name: ch.var || ch.v_name || '',
+        scale: ch.scale || 1000,
       };
     }
 
@@ -2016,15 +2024,15 @@ const DaqConfigPage = {
       const f = editForms[addr];
       try {
         const r = await fetch('/api/daq/config', {
-          method:'POST', headers:{'Content-Type':'application/json'},
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ channel_addr: addr, ...f }),
         });
         if (r.ok) {
-          showToast(`✅ CH:${String(addr).padStart(2,'0')} guardado`);
+          showToast(`✅ CH:${String(addr).padStart(2, '0')} guardado`);
           editingCh.value = null;
           await loadDbConfig();
         } else showToast('❌ Error al guardar', false);
-      } catch(e) { showToast('❌ Error de red', false); }
+      } catch (e) { showToast('❌ Error de red', false); }
     }
 
     const fmt = v => v !== null && v !== undefined ? parseFloat(v).toFixed(3) : '—';
@@ -2039,7 +2047,7 @@ const DaqConfigPage = {
     function maColor(ma) {
       if (ma === null || ma === undefined) return '#6b7280';
       const pct = maPercent(ma);
-      if (pct < 5)  return '#e55353';  // muy bajo
+      if (pct < 5) return '#e55353';  // muy bajo
       if (pct > 95) return '#e55353';  // saturado
       return '#27a766';
     }
@@ -2053,9 +2061,11 @@ const DaqConfigPage = {
     });
     onUnmounted(() => { clearInterval(liveTimer); });
 
-    return { live, connForm, mergedChannels, editingCh, editForms, toast,
-             reconnecting, loadLive, forceReconnect, saveConnection,
-             startEdit, saveCh, fmt, maPercent, maColor };
+    return {
+      live, connForm, mergedChannels, editingCh, editForms, toast,
+      reconnecting, loadLive, forceReconnect, saveConnection,
+      startEdit, saveCh, fmt, maPercent, maColor
+    };
   }
 };
 
@@ -2121,20 +2131,20 @@ const HartConfigPage = {
             </div>
           </div>
           <div class="bg-bg-primary rounded-lg p-3 border-l-2 border-accent-green">
-            <div class="text-xs text-gray-500">PV 1 <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv1.unit : '-' }}</span></div>
-            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv1.value.toFixed(4) : '--' }}</div>
+            <div class="text-xs text-gray-500">PV 1 (Flow / Caudal) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv1.unit : '-' }}</span></div>
+            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv1.value.toFixed(2) : '--' }}</div>
           </div>
           <div class="bg-bg-primary rounded-lg p-3 border-l-2 border-accent-green">
-            <div class="text-xs text-gray-500">PV 2 (inH2O) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv2.unit : '-' }}</span></div>
-            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv2.value.toFixed(4) : '--' }}</div>
+            <div class="text-xs text-gray-500">PV 2 (DP / Pres. Dif.) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv2.unit : '-' }}</span></div>
+            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv2.value.toFixed(2) : '--' }}</div>
           </div>
           <div class="bg-bg-primary rounded-lg p-3 border-l-2 border-accent-green">
-            <div class="text-xs text-gray-500">PV 3 (psi) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv3.unit : '-' }}</span></div>
-            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv3.value.toFixed(4) : '--' }}</div>
+            <div class="text-xs text-gray-500">PV 3 (SP / Pres. Est.) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv3.unit : '-' }}</span></div>
+            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv3.value.toFixed(2) : '--' }}</div>
           </div>
           <div class="bg-bg-primary rounded-lg p-3 border-l-2 border-accent-green">
-            <div class="text-xs text-gray-500">PV 4 (degF) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv4.unit : '-' }}</span></div>
-            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv4.value.toFixed(4) : '--' }}</div>
+            <div class="text-xs text-gray-500">PV 4 (Temp / Temperatura) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv4.unit : '-' }}</span></div>
+            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv4.value.toFixed(1) : '--' }}</div>
           </div>
         </div>
       </div>
@@ -2211,18 +2221,18 @@ const HartConfigPage = {
     const live = reactive({
       connected: false, error: null,
       status: 0, pv_current: 0,
-      pv1: {value: 0, unit: 0},
-      pv2: {value: 0, unit: 0},
-      pv3: {value: 0, unit: 0},
-      pv4: {value: 0, unit: 0}
+      pv1: { value: 0, unit: 0 },
+      pv2: { value: 0, unit: 0 },
+      pv3: { value: 0, unit: 0 },
+      pv4: { value: 0, unit: 0 }
     });
     const connForm = reactive({
       mode: 'tcp', ip: '192.168.255.1', port: 502,
       com_port: 'COM3', baudrate: 9600, slave_id: 1, start_address: 618
     });
-    const toast = reactive({ show:false, ok:true, msg:'' });
+    const toast = reactive({ show: false, ok: true, msg: '' });
 
-    function showToast(msg, ok=true) {
+    function showToast(msg, ok = true) {
       toast.msg = msg; toast.ok = ok; toast.show = true;
       setTimeout(() => { toast.show = false; }, 2500);
     }
@@ -2231,13 +2241,13 @@ const HartConfigPage = {
       try {
         const d = await (await fetch('/api/hart/config')).json();
         Object.assign(connForm, d);
-      } catch(e) {}
+      } catch (e) { }
     }
 
     async function saveConnection() {
       try {
         const r = await fetch('/api/hart/config', {
-          method: 'POST', headers: {'Content-Type': 'application/json'},
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(connForm),
         });
         if (r.ok) {
@@ -2246,7 +2256,7 @@ const HartConfigPage = {
         } else {
           showToast('❌ Error al guardar', false);
         }
-      } catch(e) {
+      } catch (e) {
         showToast('❌ Error de red', false);
       }
     }
@@ -2255,12 +2265,12 @@ const HartConfigPage = {
       try {
         const d = await (await fetch('/api/hart/live')).json();
         Object.assign(live, d);
-        if(d.connected) {
+        if (d.connected) {
           showToast('✅ Datos HART actualizados');
         } else {
           showToast('❌ Fallo al leer datos HART', false);
         }
-      } catch(e) {
+      } catch (e) {
         live.connected = false;
         live.error = "Error de red al consultar el backend";
         showToast('❌ Error de red', false);
@@ -2270,10 +2280,10 @@ const HartConfigPage = {
     let liveTimer;
     onMounted(() => {
       loadConfig();
-      // Leer al inicio y luego cada 5 segundos si está conectado
+      // Leer al inicio y luego cada 5 segundos (siempre, para reintentar si falla)
       loadLive();
       liveTimer = setInterval(() => {
-          if (live.connected) loadLive();
+        loadLive();
       }, 5000);
     });
     onUnmounted(() => {
@@ -2286,16 +2296,16 @@ const HartConfigPage = {
 
 // ── Mount ────────────────────────────────────────────────────
 const app = createApp(App);
-app.component('proceso-page',   ProcesoPage);
+app.component('proceso-page', ProcesoPage);
 app.component('inicio-prueba-page', InicioPruebaPage);
-app.component('reportes-page',  ReportesPage);
-app.component('data-cruda-page',DataCrudaPage);
-app.component('pid-modal',      PidModal);
-app.component('prueba-progreso-page',PruebaProgresoPage);
-app.component('propiedades-page',PropiedadesPage);
+app.component('reportes-page', ReportesPage);
+app.component('data-cruda-page', DataCrudaPage);
+app.component('pid-modal', PidModal);
+app.component('prueba-progreso-page', PruebaProgresoPage);
+app.component('propiedades-page', PropiedadesPage);
 app.component('pvt-page', PvtPage);
 app.component('pvt-data-modal', PvtDataModal);
-app.component('rangos-page',    RangosPage);
+app.component('rangos-page', RangosPage);
 app.component('daq-config-page', DaqConfigPage);
 app.component('hart-config-page', HartConfigPage);
 app.mount('#app');

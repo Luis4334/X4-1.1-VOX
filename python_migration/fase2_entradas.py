@@ -107,9 +107,9 @@ def _leer_daq_hardware():
 
     try:
         # Log detallado de la petición a la DAQ
-        logger.info(f"→ Enviando peticion Modbus RTU: read_holding_registers(addr={_READ_START_ADDR}, count={_READ_COUNT}, slave={DAQ_SLAVE_ID})")
+        logger.info(f"→ Enviando peticion Modbus RTU: read_input_registers(addr={_READ_START_ADDR}, count={_READ_COUNT}, slave={DAQ_SLAVE_ID})")
         
-        result = client.read_holding_registers(
+        result = client.read_input_registers(
             address=_READ_START_ADDR,
             count=_READ_COUNT,
             slave=DAQ_SLAVE_ID,
