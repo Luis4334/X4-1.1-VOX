@@ -82,38 +82,84 @@ except Exception:
 
 # ── Caché del último resultado HART + hilo de polling ────────────
 _HART_CACHE_LOCK   = threading.Lock()
-_HART_LAST_RESULT  = {
-    "connected": False, "error": "Iniciando...",
-    "status": 0, "pv_current": 0,
-    "pv1": {"value": 0, "unit": 0},
-    "pv2": {"value": 0, "unit": 0},
-    "pv3": {"value": 0, "unit": 0},
-    "pv4": {"value": 0, "unit": 0},
+_HART_LATEST_RESULTS = {
+    i: {
+        "connected": False,
+        "error": "Deshabilitado" if i > 0 else "Iniciando...",
+        "status": 0,
+        "pv_current": 0.0,
+        "pv1": {"value": 0.0, "unit": "-"},
+        "pv2": {"value": 0.0, "unit": "-"},
+        "pv3": {"value": 0.0, "unit": "-"},
+        "pv4": {"value": 0.0, "unit": "-"},
+    }
+    for i in range(15)
 }
 _HART_POLL_INTERVAL = 3.0   # segundos entre lecturas HART
 
 def _hart_background_poller():
-    """Hilo daemon que lee el gateway HART independientemente del scan loop."""
+    """Hilo daemon que lee los 15 canales HART de la BD secuencialmente."""
     from python_migration.comunicacion_hart import leer_instrumento_hart
     hart_logger = logging.getLogger("orinoco.hart.poller")
-    hart_logger.info("⏳ Poller HART iniciado (intervalo %.1fs)" % _HART_POLL_INTERVAL)
+    hart_logger.info("⏳ Poller HART multicanal iniciado (intervalo %.1fs)" % _HART_POLL_INTERVAL)
     while True:
         try:
-            cfg = {
-                'mode':          HART_CONFIG.get('mode', 'tcp'),
-                'ip':            HART_CONFIG.get('ip', '192.168.255.1'),
-                'port':          int(HART_CONFIG.get('port', 502)),
-                'com_port':      HART_CONFIG.get('com_port', 'COM3'),
-                'baudrate':      int(HART_CONFIG.get('baudrate', 9600)),
-                'slave_id':      max(1, int(HART_CONFIG.get('slave_id', 1))),  # Nunca 0
-                'start_address': int(HART_CONFIG.get('start_address', 618)),
-            }
-            result = leer_instrumento_hart(cfg)
-            with _HART_CACHE_LOCK:
-                _HART_LAST_RESULT.clear()
-                _HART_LAST_RESULT.update(result)
+            # 1. Cargar configuración de canales de la base de datos
+            channels = db_exec("SELECT * FROM hart_channel_config ORDER BY channel_idx")
+            if not channels:
+                # Fallback si está vacío
+                channels = [
+                    {
+                        "channel_idx": i,
+                        "v_name": f"HART_CH{i}",
+                        "description": f"Instrumento HART {i+1}",
+                        "slave_id": i + 1,
+                        "enabled": 1 if i == 0 else 0
+                    }
+                    for i in range(15)
+                ]
+            
+            # 2. Pollear secuencialmente cada canal
+            for ch in channels:
+                idx = int(ch["channel_idx"])
+                
+                if not ch.get("enabled", 1):
+                    # Si no está habilitado, poner estado desconectado/deshabilitado
+                    with _HART_CACHE_LOCK:
+                        _HART_LATEST_RESULTS[idx] = {
+                            "connected": False,
+                            "error": "Deshabilitado",
+                            "status": 0,
+                            "pv_current": 0.0,
+                            "pv1": {"value": 0.0, "unit": "-"},
+                            "pv2": {"value": 0.0, "unit": "-"},
+                            "pv3": {"value": 0.0, "unit": "-"},
+                            "pv4": {"value": 0.0, "unit": "-"},
+                        }
+                    continue
+                
+                # Configuración Modbus para este esclavo
+                cfg = {
+                    'mode':          HART_CONFIG.get('mode', 'tcp'),
+                    'ip':            HART_CONFIG.get('ip', '192.168.255.1'),
+                    'port':          int(HART_CONFIG.get('port', 502)),
+                    'com_port':      HART_CONFIG.get('com_port', 'COM3'),
+                    'baudrate':      int(HART_CONFIG.get('baudrate', 9600)),
+                    'slave_id':      max(1, int(ch.get('slave_id', idx + 1))),  # Nunca 0
+                    'start_address': 1300,  # Usar Float Only (Formato 1)
+                }
+                
+                result = leer_instrumento_hart(cfg)
+                
+                with _HART_CACHE_LOCK:
+                    _HART_LATEST_RESULTS[idx] = result
+                
+                # Pequeño retardo entre peticiones para no colapsar el bus/gateway
+                time.sleep(0.1)
+                
         except Exception as ex:
-            hart_logger.error(f"[Poller] Error inesperado: {ex}")
+            hart_logger.error(f"[Poller] Error inesperado en loop HART: {ex}")
+            
         time.sleep(_HART_POLL_INTERVAL)
 
 
@@ -194,6 +240,57 @@ def _load_daq_connection_from_db():
     timeout_ms = int(r.get("timeout_ms", 80))
     _mdaq.DAQ_TIMEOUT  = timeout_ms / 1000.0
     logger.info(f"✅ DAQ config cargada: {_mdaq.DAQ_PORT} @ {_mdaq.DAQ_BAUDRATE} baud, slave={_mdaq.DAQ_SLAVE_ID}")
+
+
+def _load_daq_channels_from_db():
+    """Lee la tabla daq_channel_config y aplica los parámetros a los módulos fase2_entradas."""
+    try:
+        import sys
+        rows = db_exec("SELECT * FROM daq_channel_config ORDER BY channel_addr")
+        if not rows:
+            logger.info("🔌 DAQ Canales: usando mapa por defecto (tabla vacía)")
+            return
+        
+        new_map = []
+        for r in rows:
+            if r.get("enabled", 1):
+                phys_addr = r.get("modbus_addr")
+                if phys_addr is None:
+                    phys_addr = r["channel_addr"]
+                new_map.append((
+                    r["v_name"],
+                    int(phys_addr),
+                    float(r.get("scale", 1000.0)),
+                    r["description"]
+                ))
+        
+        if new_map:
+            import python_migration.fase2_entradas as _f2
+            
+            # Actualizar en el módulo importado por Flask
+            _f2._INPUT_MAP = new_map
+            _f2.V._daq_channel_snapshot = [
+                {
+                    "ch":        entry[1],
+                    "var":       entry[0],
+                    "desc":      entry[3],
+                    "raw":       None,
+                    "ma":        None,
+                    "open_wire": True,
+                }
+                for entry in new_map
+            ]
+            
+            # Actualizar en el módulo importado por ScanEngine
+            _f2_se = sys.modules.get('fase2_entradas')
+            if _f2_se:
+                _f2_se._INPUT_MAP = new_map
+                if hasattr(_f2_se, 'V'):
+                    _f2_se.V._daq_channel_snapshot = _f2.V._daq_channel_snapshot
+            
+            logger.info(f"✅ DAQ Canales cargados/actualizados de BD: {new_map}")
+    except Exception as e:
+        logger.error(f"⚠️ Error cargando canales de la BD: {e}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -569,7 +666,7 @@ def daq_live():
         data_age_s = _time.monotonic() - last_success
         stale      = data_age_s > STALE_LIMIT
 
-    connected = (not V.b_Error_DAQ) and (not stale)
+    connected = (not _V_plc.b_Error_DAQ) and (not stale)
 
     # Si no hay snapshot todavía, construirlo desde el mapa de canales
     if not snapshot:
@@ -583,7 +680,7 @@ def daq_live():
     if stale:
         snapshot = [dict(ch=c["ch"], var=c.get("var",""), desc=c.get("desc",""),
                          raw=None, ma=None, open_wire=True) for c in snapshot]
-        V.b_Error_DAQ = True
+        _V_plc.b_Error_DAQ = True
 
     cooldown_left = max(0.0, _mdaq.RECONNECT_COOLDOWN -
                         (_time.monotonic() - _mdaq._last_attempt))
@@ -619,7 +716,7 @@ def daq_get_config():
 def daq_save_config():
     """
     Guarda (UPSERT) la configuración de un canal en la BD.
-    Payload: { channel_addr, v_name, description, scale, eu_min, eu_max, enabled }
+    Payload: { channel_addr, v_name, description, scale, eu_min, eu_max, enabled, modbus_addr }
     """
     d = request.get_json() or {}
     required = ["channel_addr", "v_name", "description"]
@@ -628,11 +725,11 @@ def daq_save_config():
 
     db_exec(
         """INSERT INTO daq_channel_config
-             (channel_addr, v_name, description, scale, eu_min, eu_max, enabled)
-           VALUES (%s,%s,%s,%s,%s,%s,%s)
+             (channel_addr, v_name, description, scale, eu_min, eu_max, enabled, modbus_addr)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
            ON DUPLICATE KEY UPDATE
              v_name=%s, description=%s, scale=%s,
-             eu_min=%s, eu_max=%s, enabled=%s, updated_at=NOW()""",
+             eu_min=%s, eu_max=%s, enabled=%s, modbus_addr=%s, updated_at=NOW()""",
         (
             int(d["channel_addr"]),
             d["v_name"], d["description"],
@@ -640,15 +737,21 @@ def daq_save_config():
             float(d.get("eu_min", 4.0)),
             float(d.get("eu_max", 20.0)),
             bool(d.get("enabled", True)),
+            int(d.get("modbus_addr", d["channel_addr"])),
             # ON DUPLICATE KEY values:
             d["v_name"], d["description"],
             float(d.get("scale", 1000.0)),
             float(d.get("eu_min", 4.0)),
             float(d.get("eu_max", 20.0)),
             bool(d.get("enabled", True)),
+            int(d.get("modbus_addr", d["channel_addr"])),
         ),
         fetch=False,
     )
+    
+    # Recargar la configuración en caliente
+    _load_daq_channels_from_db()
+    
     return jsonify({"ok": True, "channel_addr": d["channel_addr"]})
 
 
@@ -735,10 +838,51 @@ def post_hart_config():
 
 @app.route("/api/hart/live", methods=["GET"])
 def get_hart_live():
-    """Devuelve el último snapshot HART desde la caché (no bloquea)."""
+    """Devuelve el último snapshot de los 15 canales HART desde la caché (no bloquea)."""
     with _HART_CACHE_LOCK:
-        snapshot = dict(_HART_LAST_RESULT)
-    return jsonify(snapshot)
+        results_list = [
+            {"channel_idx": idx, **res}
+            for idx, res in sorted(_HART_LATEST_RESULTS.items())
+        ]
+    return jsonify(results_list)
+
+@app.route("/api/hart/config/channels", methods=["GET"])
+def get_hart_channels_config():
+    """Retorna la configuración de los 15 canales HART desde la BD."""
+    rows = db_exec("SELECT * FROM hart_channel_config ORDER BY channel_idx")
+    return jsonify(rows or [])
+
+@app.route("/api/hart/config/channels", methods=["POST"])
+def save_hart_channel_config():
+    """
+    Guarda (UPSERT) la configuración de un canal HART en la BD.
+    Payload: { channel_idx, v_name, description, slave_id, enabled }
+    """
+    d = request.get_json() or {}
+    required = ["channel_idx", "v_name", "description", "slave_id"]
+    if not all(k in d for k in required):
+        return jsonify({"error": "Faltan campos requeridos"}), 400
+
+    db_exec(
+        """INSERT INTO hart_channel_config
+             (channel_idx, v_name, description, slave_id, enabled)
+           VALUES (%s,%s,%s,%s,%s)
+           ON DUPLICATE KEY UPDATE
+             description=%s, slave_id=%s, enabled=%s, updated_at=NOW()""",
+        (
+            int(d["channel_idx"]),
+            d["v_name"],
+            d["description"],
+            int(d["slave_id"]),
+            bool(d.get("enabled", True)),
+            # ON DUPLICATE KEY values:
+            d["description"],
+            int(d["slave_id"]),
+            bool(d.get("enabled", True)),
+        ),
+        fetch=False,
+    )
+    return jsonify({"ok": True, "channel_idx": d["channel_idx"]})
 
 # ─────────────────────────────────────────────────────────────
 # WebSocket Events
@@ -811,6 +955,9 @@ if __name__ == "__main__":
 
     # ── Restaurar configuración DAQ desde BD ──────────────────
     _load_daq_connection_from_db()
+    
+    # ── Restaurar mapeo de canales DAQ desde BD ──────────────
+    _load_daq_channels_from_db()
 
     # ── Arrancar Hilo 1: ScanEngine (100 ms, daemon) ──────────
     # start() crea su propio threading.Thread internamente

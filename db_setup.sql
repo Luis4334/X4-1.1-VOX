@@ -120,3 +120,37 @@ INSERT INTO tabla_configuracion_alarma (instrumento, descripcion, unidad, minimo
 INSERT INTO usuarios (username, password_hash, rol) VALUES
 ('admin', 'pbkdf2:sha256:260000$admin123', 'admin'),
 ('operador', 'pbkdf2:sha256:260000$oper456', 'operador');
+
+-- ============================================================
+-- Table: hart_channel_config
+-- Stores Modbus HART instruments configuration
+-- ============================================================
+DROP TABLE IF EXISTS `hart_channel_config`;
+CREATE TABLE `hart_channel_config` (
+  `channel_idx`   TINYINT UNSIGNED NOT NULL COMMENT 'Indice de slot (0 a 14)',
+  `v_name`        VARCHAR(64)  NOT NULL        COMMENT 'Nombre de la variable V (fija, ej: HART_CH0)',
+  `description`   VARCHAR(120) NOT NULL        COMMENT 'Descripcion/Tag del instrumento',
+  `slave_id`      TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'ID de esclavo Modbus (1 a 15)',
+  `enabled`       TINYINT(1)   NOT NULL DEFAULT 1      COMMENT '1=activo, 0=deshabilitado/ignorado',
+  `updated_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`channel_idx`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Configuracion de canales Modbus HART';
+
+-- Initial 15 HART channels (HART_CH0 enabled by default, others disabled)
+INSERT INTO `hart_channel_config` (channel_idx, v_name, description, slave_id, enabled) VALUES
+(0, 'HART_CH0', 'Instrumento HART 1', 1, 1),
+(1, 'HART_CH1', 'Instrumento HART 2', 2, 0),
+(2, 'HART_CH2', 'Instrumento HART 3', 3, 0),
+(3, 'HART_CH3', 'Instrumento HART 4', 4, 0),
+(4, 'HART_CH4', 'Instrumento HART 5', 5, 0),
+(5, 'HART_CH5', 'Instrumento HART 6', 6, 0),
+(6, 'HART_CH6', 'Instrumento HART 7', 7, 0),
+(7, 'HART_CH7', 'Instrumento HART 8', 8, 0),
+(8, 'HART_CH8', 'Instrumento HART 9', 9, 0),
+(9, 'HART_CH9', 'Instrumento HART 10', 10, 0),
+(10, 'HART_CH10', 'Instrumento HART 11', 11, 0),
+(11, 'HART_CH11', 'Instrumento HART 12', 12, 0),
+(12, 'HART_CH12', 'Instrumento HART 13', 13, 0),
+(13, 'HART_CH13', 'Instrumento HART 14', 14, 0),
+(14, 'HART_CH14', 'Instrumento HART 15', 15, 0);
+

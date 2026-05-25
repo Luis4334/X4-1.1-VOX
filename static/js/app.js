@@ -1753,33 +1753,54 @@ const DaqConfigPage = {
         <table class="w-full text-xs">
           <thead>
             <tr class="border-b border-gray-700 bg-bg-primary">
-              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-16">Canal</th>
+              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-40">Variable V (fija)</th>
               <th class="px-3 py-2 text-left text-gray-400 font-semibold">Descripción / Instrumento</th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-24">Raw (×1000)</th>
+              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-32">Address Canal Modbus</th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-24">Raw (xescala)</th>
               <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">Valor [mA]</th>
               <th class="px-3 py-2 text-center text-gray-400 font-semibold w-20">Estado</th>
-              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-36">Variable V</th>
               <th class="px-3 py-2 text-center text-gray-400 font-semibold w-20">Escala</th>
               <th class="px-3 py-2 text-center text-gray-400 font-semibold w-16">Editar</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="ch in mergedChannels" :key="ch.ch"
+            <tr v-for="ch in mergedChannels" :key="ch.var"
                 class="border-b border-gray-800 hover:bg-white/5 transition-colors"
                 :class="ch.open_wire ? 'opacity-50' : ''">
+              <!-- Variable V (fija) -->
               <td class="px-3 py-2">
-                <span class="font-mono font-bold text-accent-yellow">CH:{{ String(ch.ch).padStart(2,'0') }}</span>
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#0e271a] border border-[#1b5e20] text-xs font-mono font-bold text-accent-green">
+                  🔒 {{ ch.var }}
+                </span>
               </td>
+              <!-- Descripción / Instrumento -->
               <td class="px-3 py-2">
-                <span v-if="editingCh === ch.ch">
-                  <input v-model="editForms[ch.ch].description"
+                <span v-if="editingCh === ch.var">
+                  <input v-model="editForms[ch.var].description"
                          class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1 w-full outline-none focus:border-accent-blue" />
                 </span>
-                <span v-else class="text-gray-200">{{ ch.desc || '—' }}</span>
+                <span v-else class="text-gray-200 font-medium">{{ ch.desc || '—' }}</span>
               </td>
+              <!-- Address Canal Modbus (editable 0-5) -->
+              <td class="px-3 py-2 text-center">
+                <span v-if="editingCh === ch.var">
+                  <select v-model.number="editForms[ch.var].modbus_addr"
+                          class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-1.5 py-1 outline-none focus:border-accent-blue font-mono">
+                    <option v-for="num in [0,1,2,3,4,5]" :key="num" :value="num">
+                      CH:{{ String(num).padStart(2,'0') }} (addr {{ num }})
+                    </option>
+                  </select>
+                </span>
+                <span v-else class="flex flex-col items-center justify-center font-mono leading-tight">
+                  <span class="text-accent-yellow font-bold">CH:{{ String(ch.modbus_addr).padStart(2,'0') }}</span>
+                  <span class="text-[10px] text-gray-500">addr {{ ch.modbus_addr }}</span>
+                </span>
+              </td>
+              <!-- Raw (xescala) -->
               <td class="px-3 py-2 text-right font-mono">
                 <span :class="ch.open_wire ? 'text-red-400' : 'text-gray-300'">{{ ch.raw ?? '—' }}</span>
               </td>
+              <!-- Valor [mA] -->
               <td class="px-3 py-2 text-right">
                 <!-- barra mA 4-20 -->
                 <div v-if="!ch.open_wire" class="flex items-center gap-2 justify-end">
@@ -1795,32 +1816,28 @@ const DaqConfigPage = {
                 </div>
                 <span v-else class="text-red-400 font-mono">OPEN WIRE</span>
               </td>
+              <!-- Estado -->
               <td class="px-3 py-2 text-center">
                 <span v-if="ch.open_wire"
                       class="px-2 py-0.5 text-xs font-bold rounded bg-red-900/60 text-red-300">SIN SEÑAL</span>
                 <span v-else
                       class="px-2 py-0.5 text-xs font-bold rounded bg-green-900/60 text-green-300">OK</span>
               </td>
-              <td class="px-3 py-2">
-                <span v-if="editingCh === ch.ch">
-                  <input v-model="editForms[ch.ch].v_name"
-                         class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1 w-full outline-none focus:border-accent-blue font-mono" />
-                </span>
-                <span v-else class="font-mono text-gray-400 text-xs">{{ ch.var || '—' }}</span>
-              </td>
-              <td class="px-3 py-2 text-center">
-                <span v-if="editingCh === ch.ch">
-                  <input v-model.number="editForms[ch.ch].scale" type="number" step="1"
+              <!-- Escala -->
+              <td class="px-3 py-2 text-center font-mono">
+                <span v-if="editingCh === ch.var">
+                  <input v-model.number="editForms[ch.var].scale" type="number" step="1"
                          class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1 w-20 outline-none focus:border-accent-blue font-mono text-center" />
                 </span>
-                <span v-else class="font-mono text-gray-400">{{ ch.scale ?? 1000 }}</span>
+                <span v-else class="text-gray-400 font-mono">{{ ch.scale ?? 1000 }}</span>
               </td>
+              <!-- Editar -->
               <td class="px-3 py-2 text-center">
-                <button v-if="editingCh !== ch.ch"
+                <button v-if="editingCh !== ch.var"
                         @click="startEdit(ch)"
                         class="px-2 py-0.5 text-xs bg-accent-blue hover:brightness-110 text-white rounded transition-all">✏️</button>
                 <div v-else class="flex gap-1 justify-center">
-                  <button @click="saveCh(ch.ch)"
+                  <button @click="saveCh(ch)"
                           class="px-2 py-0.5 text-xs bg-accent-green hover:brightness-110 text-white rounded">✓</button>
                   <button @click="editingCh = null"
                           class="px-2 py-0.5 text-xs bg-gray-600 hover:brightness-110 text-white rounded">✕</button>
@@ -1906,29 +1923,39 @@ const DaqConfigPage = {
     // Marcar como dirty cuando el usuario toca cualquier campo del form
     watch(connForm, () => { _connFormDirty = true; }, { deep: true, flush: 'sync' });
 
-    // Mezcla datos en vivo + config BD en una sola lista de 6 canales
+    // Mezcla datos en vivo + config BD en una sola lista de 6 canales ordenada por channel_addr (0-5)
     const mergedChannels = computed(() => {
-      const byAddr = {};
-      dbConfig.value.forEach(c => { byAddr[c.channel_addr] = c; });
+      const dbByVar = {};
+      dbConfig.value.forEach(c => { dbByVar[c.v_name] = c; });
 
-      // Usar snapshot en vivo si tiene datos (Array con al menos 1 elemento)
-      if (Array.isArray(live.channels) && live.channels.length > 0) {
-        return live.channels.map(ch => ({
-          ...ch,
-          desc: (byAddr[ch.ch] || {}).description || ch.desc,
-          scale: (byAddr[ch.ch] || {}).scale || 1000,
-          v_name: (byAddr[ch.ch] || {}).v_name || ch.var,
-        }));
-      }
+      const sortedDbConfig = [...dbConfig.value].sort((a, b) => a.channel_addr - b.channel_addr);
+      
+      const fixedVars = sortedDbConfig.length > 0 
+        ? sortedDbConfig.map(c => c.v_name)
+        : [
+            'r_Local_2_I_Ch0Data',
+            'r_Local_2_I_Ch1Data',
+            'r_Local_2_I_Ch2Data',
+            'r_Local_2_I_Ch3Data',
+            'r_Local_4_I_Ch0Data',
+            'r_Local_4_I_Ch1Data'
+          ];
 
-      // Fallback estático solo si aún no llegó ningún dato del backend
-      return Array.from({ length: 6 }, (_, i) => ({
-        ch: i,
-        desc: (byAddr[i] || {}).description || `CH:0${i} — esperando...`,
-        raw: null, ma: null, open_wire: false,   // false para no mostrar error al cargar
-        var: (byAddr[i] || {}).v_name || '',
-        scale: (byAddr[i] || {}).scale || 1000,
-      }));
+      return fixedVars.map((varName, index) => {
+        const dbCh = dbByVar[varName] || {};
+        const liveCh = (live.channels || []).find(ch => ch.var === varName) || {};
+
+        return {
+          var: varName,
+          channel_addr: dbCh.channel_addr !== undefined ? dbCh.channel_addr : index,
+          desc: dbCh.description || liveCh.desc || '',
+          modbus_addr: dbCh.modbus_addr !== undefined ? dbCh.modbus_addr : (liveCh.ch !== undefined ? liveCh.ch : index),
+          scale: dbCh.scale || liveCh.scale || 1000,
+          raw: liveCh.raw !== undefined ? liveCh.raw : null,
+          ma: liveCh.ma !== undefined ? liveCh.ma : null,
+          open_wire: liveCh.open_wire !== undefined ? liveCh.open_wire : true,
+        };
+      });
     });
 
     function showToast(msg, ok = true) {
@@ -2012,23 +2039,29 @@ const DaqConfigPage = {
     }
 
     function startEdit(ch) {
-      editingCh.value = ch.ch;
-      editForms[ch.ch] = {
+      editingCh.value = ch.var;
+      editForms[ch.var] = {
         description: ch.desc || '',
-        v_name: ch.var || ch.v_name || '',
+        modbus_addr: ch.modbus_addr,
         scale: ch.scale || 1000,
       };
     }
 
-    async function saveCh(addr) {
-      const f = editForms[addr];
+    async function saveCh(ch) {
+      const f = editForms[ch.var];
       try {
         const r = await fetch('/api/daq/config', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ channel_addr: addr, ...f }),
+          body: JSON.stringify({
+            channel_addr: ch.channel_addr,
+            v_name: ch.var,
+            description: f.description,
+            scale: f.scale,
+            modbus_addr: f.modbus_addr,
+          }),
         });
         if (r.ok) {
-          showToast(`✅ CH:${String(addr).padStart(2, '0')} guardado`);
+          showToast(`✅ ${ch.var} guardado`);
           editingCh.value = null;
           await loadDbConfig();
         } else showToast('❌ Error al guardar', false);
@@ -2072,14 +2105,18 @@ const DaqConfigPage = {
 // ═══════════════════════════════════════════════════════════════
 // HART CONFIG PAGE
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// HART CONFIG PAGE
+// ═══════════════════════════════════════════════════════════════
 const HartConfigPage = {
   name: 'HartConfigPage',
   template: `
   <div class="p-4 flex flex-col gap-4">
+    <!-- Header -->
     <div class="flex items-center justify-between flex-wrap gap-3">
       <div>
         <h1 class="text-xl font-bold text-white tracking-wide">⚡ Configuración Modbus HART</h1>
-        <p class="text-xs text-gray-400 mt-0.5">Configuración y lectura de variables HART de la DAQ</p>
+        <p class="text-xs text-gray-400 mt-0.5">Configuración de comunicación y mapeo de instrumentos HART por Slave ID</p>
       </div>
       <div class="flex gap-2 flex-wrap">
         <button @click="loadLive"
@@ -2088,71 +2125,17 @@ const HartConfigPage = {
         </button>
         <button @click="saveConnection"
                 class="px-3 py-1.5 bg-accent-green hover:brightness-110 text-white text-xs font-bold rounded transition-all">
-          💾 Guardar Configuración
+          💾 Guardar Conexión Gateway
         </button>
       </div>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <!-- Card estado HART -->
-      <div class="bg-bg-card border rounded-xl p-4 flex flex-col gap-3"
-           :style="{borderColor: live.connected ? '#27a766' : '#e55353'}">
-        <div class="flex items-center gap-3">
-          <span class="relative flex h-6 w-6 items-center justify-center flex-shrink-0">
-            <span v-if="live.connected"
-                  class="animate-ping absolute inline-flex h-4 w-4 rounded-full opacity-50"
-                  style="background:#27a766"></span>
-            <span class="relative inline-flex rounded-full h-4 w-4"
-                  :style="{background: live.connected ? '#27a766' : '#e55353'}"></span>
-          </span>
-          <div class="flex-1 min-w-0">
-            <div class="text-sm font-bold text-white">
-              {{ live.connected ? '✅ Comunicación HART OK' : '🔴 HART Desconectado' }}
-            </div>
-            <div v-if="live.error"
-                 class="text-xs text-red-400 mt-0.5 truncate" :title="live.error">
-              ⚠ {{ live.error }}
-            </div>
-          </div>
-        </div>
-
-        <!-- Telemetry Data -->
-        <div class="grid grid-cols-2 gap-3 mt-2">
-          <div class="bg-bg-primary rounded-lg p-3">
-            <div class="text-xs text-gray-500">Status Dispositivo</div>
-            <div class="text-lg font-mono font-bold text-accent-yellow">
-              {{ live.connected ? '0x' + live.status.toString(16).toUpperCase().padStart(4, '0') : '--' }}
-            </div>
-          </div>
-          <div class="bg-bg-primary rounded-lg p-3">
-            <div class="text-xs text-gray-500">PV Current (mA)</div>
-            <div class="text-lg font-mono font-bold text-accent-blue">
-              {{ live.connected ? live.pv_current.toFixed(4) : '--' }}
-            </div>
-          </div>
-          <div class="bg-bg-primary rounded-lg p-3 border-l-2 border-accent-green">
-            <div class="text-xs text-gray-500">PV 1 (Flow / Caudal) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv1.unit : '-' }}</span></div>
-            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv1.value.toFixed(2) : '--' }}</div>
-          </div>
-          <div class="bg-bg-primary rounded-lg p-3 border-l-2 border-accent-green">
-            <div class="text-xs text-gray-500">PV 2 (DP / Pres. Dif.) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv2.unit : '-' }}</span></div>
-            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv2.value.toFixed(2) : '--' }}</div>
-          </div>
-          <div class="bg-bg-primary rounded-lg p-3 border-l-2 border-accent-green">
-            <div class="text-xs text-gray-500">PV 3 (SP / Pres. Est.) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv3.unit : '-' }}</span></div>
-            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv3.value.toFixed(2) : '--' }}</div>
-          </div>
-          <div class="bg-bg-primary rounded-lg p-3 border-l-2 border-accent-green">
-            <div class="text-xs text-gray-500">PV 4 (Temp / Temperatura) <span class="text-[10px] ml-1 bg-gray-700 px-1 rounded text-gray-300">Unidad: {{ live.connected ? live.pv4.unit : '-' }}</span></div>
-            <div class="text-lg font-mono font-bold text-white">{{ live.connected ? live.pv4.value.toFixed(1) : '--' }}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Card edición de conexión -->
-      <div class="bg-bg-card border border-gray-700 rounded-xl p-4 flex flex-col gap-3">
-        <div class="text-sm font-bold text-white mb-1">⚙️ Configuración HART</div>
-        <div class="flex flex-col gap-1 mb-2">
+    <!-- Parámetros de Conexión Gateway -->
+    <div class="bg-bg-card border border-gray-700 rounded-xl p-4 flex flex-col gap-3">
+      <div class="text-sm font-bold text-white mb-1">⚙️ Parámetros de Conexión del Gateway</div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- Modo -->
+        <div class="flex flex-col gap-1">
           <label class="text-xs text-gray-400">Modo de Comunicación</label>
           <select v-model="connForm.mode"
                   class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue">
@@ -2162,7 +2145,7 @@ const HartConfigPage = {
         </div>
 
         <!-- Campos TCP -->
-        <div v-if="connForm.mode === 'tcp'" class="grid grid-cols-2 gap-3 bg-bg-primary p-3 rounded border border-gray-800">
+        <template v-if="connForm.mode === 'tcp'">
           <div class="flex flex-col gap-1">
             <label class="text-xs text-gray-400">Dirección IP</label>
             <input v-model="connForm.ip" placeholder="192.168.255.1"
@@ -2173,10 +2156,10 @@ const HartConfigPage = {
             <input v-model.number="connForm.port" type="number"
                    class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
           </div>
-        </div>
+        </template>
 
         <!-- Campos RTU -->
-        <div v-if="connForm.mode === 'rtu'" class="grid grid-cols-2 gap-3 bg-bg-primary p-3 rounded border border-gray-800">
+        <template v-if="connForm.mode === 'rtu'">
           <div class="flex flex-col gap-1">
             <label class="text-xs text-gray-400">Puerto COM</label>
             <input v-model="connForm.com_port" placeholder="COM3"
@@ -2191,20 +2174,123 @@ const HartConfigPage = {
               <option>57600</option><option>115200</option>
             </select>
           </div>
-        </div>
+        </template>
+      </div>
+    </div>
 
-        <div class="grid grid-cols-2 gap-3 mt-1">
-          <div class="flex flex-col gap-1">
-            <label class="text-xs text-gray-400">Slave ID (Modbus)</label>
-            <input v-model.number="connForm.slave_id" type="number" min="1" max="247"
-                   class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
-          </div>
-          <div class="flex flex-col gap-1">
-            <label class="text-xs text-gray-400">Start Address (Word)</label>
-            <input v-model.number="connForm.start_address" type="number"
-                   class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
-          </div>
-        </div>
+    <!-- Instrumentos HART en tiempo real -->
+    <div class="bg-bg-card border border-gray-700 rounded-xl overflow-hidden mt-4">
+      <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+        <span class="text-sm font-bold text-white">📥 Instrumentos HART (Mapeo por Slave ID)</span>
+        <span class="text-xs text-gray-500 font-mono">Actualización: cada 5 s</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="border-b border-gray-700 bg-bg-primary">
+              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-12">N°</th>
+              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-40">Variable V (fija)</th>
+              <th class="px-3 py-2 text-left text-gray-400 font-semibold">Descripción / Tag</th>
+              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-32">Slave ID</th>
+              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-20">Estado</th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-24">PV Current</th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 1 (Flow)</th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 2 (DP)</th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 3 (SP)</th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 4 (Temp)</th>
+              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-16">Editar</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="ch in mergedHartChannels" :key="ch.channel_idx"
+                class="border-b border-gray-800 hover:bg-white/5 transition-colors"
+                :class="!ch.enabled ? 'opacity-40' : ''">
+              <!-- N° -->
+              <td class="px-3 py-2 text-gray-400 font-mono">{{ ch.channel_idx + 1 }}</td>
+              
+              <!-- Variable V (Fija) -->
+              <td class="px-3 py-2">
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#0e271a] border border-[#1b5e20] text-xs font-mono font-bold text-accent-green">
+                  🔒 {{ ch.v_name }}
+                </span>
+              </td>
+              
+              <!-- Descripción / Tag -->
+              <td class="px-3 py-2">
+                <span v-if="editingCh === ch.channel_idx">
+                  <input v-model="editForms[ch.channel_idx].description"
+                         class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1 w-full outline-none focus:border-accent-blue" />
+                </span>
+                <span v-else class="text-gray-200 font-medium">{{ ch.desc || '—' }}</span>
+              </td>
+              
+              <!-- Slave ID -->
+              <td class="px-3 py-2 text-center">
+                <div v-if="editingCh === ch.channel_idx" class="flex flex-col gap-1 items-center">
+                  <select v-model.number="editForms[ch.channel_idx].slave_id"
+                          class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-1.5 py-1 outline-none focus:border-accent-blue font-mono">
+                    <option v-for="num in Array.from({length: 15}, (_, i) => i + 1)" :key="num" :value="num">
+                      ID: {{ num }}
+                    </option>
+                  </select>
+                  <label class="inline-flex items-center gap-1 mt-1 text-[10px] text-gray-400">
+                    <input type="checkbox" v-model="editForms[ch.channel_idx].enabled" />
+                    Habilitar
+                  </label>
+                </div>
+                <span v-else class="font-mono font-bold text-accent-yellow">ID:{{ ch.slave_id }}</span>
+              </td>
+              
+              <!-- Estado -->
+              <td class="px-3 py-2 text-center">
+                <span v-if="!ch.enabled"
+                      class="px-2 py-0.5 text-xs font-bold rounded bg-gray-800 text-gray-400">DESC.</span>
+                <span v-else-if="ch.connected"
+                      class="px-2 py-0.5 text-xs font-bold rounded bg-green-900/60 text-green-300">CONECTADO</span>
+                <span v-else
+                      class="px-2 py-0.5 text-xs font-bold rounded bg-red-900/60 text-red-300">ERROR</span>
+              </td>
+              
+              <!-- PV Current -->
+              <td class="px-3 py-2 text-right font-mono">
+                <span>{{ fmtCurrent(ch.pv_current) }}</span>
+              </td>
+              
+              <!-- PV 1 (Flow) -->
+              <td class="px-3 py-2 text-right font-mono">
+                <span>{{ fmtValue(ch.pv1) }}</span>
+              </td>
+              
+              <!-- PV 2 (DP) -->
+              <td class="px-3 py-2 text-right font-mono">
+                <span>{{ fmtValue(ch.pv2) }}</span>
+              </td>
+              
+              <!-- PV 3 (SP) -->
+              <td class="px-3 py-2 text-right font-mono">
+                <span>{{ fmtValue(ch.pv3) }}</span>
+              </td>
+              
+              <!-- PV 4 (Temp) -->
+              <td class="px-3 py-2 text-right font-mono">
+                <span>{{ fmtValue(ch.pv4) }}</span>
+              </td>
+              
+              <!-- Editar -->
+              <td class="px-3 py-2 text-center">
+                <button v-if="editingCh !== ch.channel_idx"
+                        @click="startEdit(ch)"
+                        class="px-2 py-0.5 text-xs bg-accent-blue hover:brightness-110 text-white rounded transition-all">✏️</button>
+                <div v-else class="flex gap-1 justify-center">
+                  <button @click="saveCh(ch)"
+                          class="px-2 py-0.5 text-xs bg-accent-green hover:brightness-110 text-white rounded">✓</button>
+                  <button @click="editingCh = null"
+                          class="px-2 py-0.5 text-xs bg-gray-600 hover:brightness-110 text-white rounded">✕</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
     
@@ -2218,18 +2304,14 @@ const HartConfigPage = {
     </transition>
   </div>`,
   setup() {
-    const live = reactive({
-      connected: false, error: null,
-      status: 0, pv_current: 0,
-      pv1: { value: 0, unit: 0 },
-      pv2: { value: 0, unit: 0 },
-      pv3: { value: 0, unit: 0 },
-      pv4: { value: 0, unit: 0 }
-    });
+    const liveChannels = ref([]);
     const connForm = reactive({
       mode: 'tcp', ip: '192.168.255.1', port: 502,
       com_port: 'COM3', baudrate: 9600, slave_id: 1, start_address: 618
     });
+    const dbConfig = ref([]);
+    const editingCh = ref(null);
+    const editForms = reactive({});
     const toast = reactive({ show: false, ok: true, msg: '' });
 
     function showToast(msg, ok = true) {
@@ -2251,7 +2333,55 @@ const HartConfigPage = {
           body: JSON.stringify(connForm),
         });
         if (r.ok) {
-          showToast('✅ Configuración HART guardada exitosamente');
+          showToast('✅ Configuración de conexión HART guardada');
+        } else {
+          showToast('❌ Error al guardar', false);
+        }
+      } catch (e) {
+        showToast('❌ Error de red', false);
+      }
+    }
+
+    async function loadDbConfig() {
+      try {
+        const d = await (await fetch('/api/hart/config/channels')).json();
+        dbConfig.value = d;
+      } catch (e) { }
+    }
+
+    async function loadLive() {
+      try {
+        const d = await (await fetch('/api/hart/live')).json();
+        liveChannels.value = d;
+      } catch (e) { }
+    }
+
+    function startEdit(ch) {
+      editingCh.value = ch.channel_idx;
+      editForms[ch.channel_idx] = {
+        description: ch.desc || '',
+        slave_id: ch.slave_id,
+        enabled: ch.enabled
+      };
+    }
+
+    async function saveCh(ch) {
+      const f = editForms[ch.channel_idx];
+      try {
+        const r = await fetch('/api/hart/config/channels', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            channel_idx: ch.channel_idx,
+            v_name: ch.v_name,
+            description: f.description,
+            slave_id: f.slave_id,
+            enabled: f.enabled
+          }),
+        });
+        if (r.ok) {
+          showToast(`✅ ${ch.v_name} guardado exitosamente`);
+          editingCh.value = null;
+          await loadDbConfig();
           await loadLive();
         } else {
           showToast('❌ Error al guardar', false);
@@ -2261,36 +2391,50 @@ const HartConfigPage = {
       }
     }
 
-    async function loadLive() {
-      try {
-        const d = await (await fetch('/api/hart/live')).json();
-        Object.assign(live, d);
-        if (d.connected) {
-          showToast('✅ Datos HART actualizados');
-        } else {
-          showToast('❌ Fallo al leer datos HART', false);
-        }
-      } catch (e) {
-        live.connected = false;
-        live.error = "Error de red al consultar el backend";
-        showToast('❌ Error de red', false);
-      }
-    }
+    const mergedHartChannels = computed(() => {
+      const dbByIdx = {};
+      dbConfig.value.forEach(c => { dbByIdx[c.channel_idx] = c; });
+
+      return Array.from({ length: 15 }, (_, i) => {
+        const dbCh = dbByIdx[i] || {};
+        const liveCh = liveChannels.value.find(ch => ch.channel_idx === i) || {};
+
+        return {
+          channel_idx: i,
+          v_name: dbCh.v_name || `HART_CH${i}`,
+          desc: dbCh.description || `Instrumento HART ${i+1}`,
+          slave_id: dbCh.slave_id !== undefined ? dbCh.slave_id : i + 1,
+          enabled: dbCh.enabled !== undefined ? !!dbCh.enabled : (i === 0),
+          connected: liveCh.connected || false,
+          error: liveCh.error || null,
+          pv_current: liveCh.pv_current || 0.0,
+          pv1: liveCh.pv1 || { value: 0.0, unit: '-' },
+          pv2: liveCh.pv2 || { value: 0.0, unit: '-' },
+          pv3: liveCh.pv3 || { value: 0.0, unit: '-' },
+          pv4: liveCh.pv4 || { value: 0.0, unit: '-' },
+        };
+      });
+    });
+
+    const fmtCurrent = v => v !== null && v !== undefined && v !== 0 ? parseFloat(v).toFixed(4) + ' mA' : '--';
+    const fmtValue = pv => pv && pv.value !== undefined && pv.value !== 0 ? parseFloat(pv.value).toFixed(2) + ' ' + (pv.unit || '') : '--';
 
     let liveTimer;
     onMounted(() => {
       loadConfig();
-      // Leer al inicio y luego cada 5 segundos (siempre, para reintentar si falla)
+      loadDbConfig();
       loadLive();
-      liveTimer = setInterval(() => {
-        loadLive();
-      }, 5000);
+      liveTimer = setInterval(loadLive, 5000);
     });
     onUnmounted(() => {
       clearInterval(liveTimer);
     });
 
-    return { live, connForm, toast, loadLive, saveConnection };
+    return {
+      liveChannels, connForm, dbConfig, editingCh, editForms, toast,
+      loadLive, saveConnection, startEdit, saveCh, mergedHartChannels,
+      fmtCurrent, fmtValue
+    };
   }
 };
 
