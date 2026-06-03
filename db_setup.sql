@@ -124,33 +124,45 @@ INSERT INTO usuarios (username, password_hash, rol) VALUES
 -- ============================================================
 -- Table: hart_channel_config
 -- Stores Modbus HART instruments configuration
+--
+-- HART Device Address = dirección HART física del instrumento
+-- configurada en HG Tool (campo 'HART Device Address').
+-- Todos los instrumentos comparten el canal físico HART Channel 0.
+-- El gateway HRT-711 hace polling a cada instrumento por su
+-- HART Device Address y expone los datos en registros Modbus
+-- accesibles usando ese mismo valor como slave_id Modbus.
 -- ============================================================
 DROP TABLE IF EXISTS `hart_channel_config`;
 CREATE TABLE `hart_channel_config` (
-  `channel_idx`   TINYINT UNSIGNED NOT NULL COMMENT 'Indice de slot (0 a 14)',
-  `v_name`        VARCHAR(64)  NOT NULL        COMMENT 'Nombre de la variable V (fija, ej: HART_CH0)',
-  `description`   VARCHAR(120) NOT NULL        COMMENT 'Descripcion/Tag del instrumento',
-  `slave_id`      TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'ID de esclavo Modbus (1 a 15)',
-  `enabled`       TINYINT(1)   NOT NULL DEFAULT 1      COMMENT '1=activo, 0=deshabilitado/ignorado',
-  `updated_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `channel_idx`          TINYINT UNSIGNED NOT NULL COMMENT 'Indice de slot (0 a 14)',
+  `v_name`               VARCHAR(64)  NOT NULL        COMMENT 'Nombre de la variable V (fija, ej: HART_CH0)',
+  `description`          VARCHAR(120) NOT NULL        COMMENT 'Descripcion/Tag del instrumento',
+  `hart_device_address`  TINYINT UNSIGNED NOT NULL DEFAULT 1
+                         COMMENT 'HART Device Address del HG Tool (1-15). Usado como slave_id Modbus.',
+  `slave_id`             TINYINT UNSIGNED NOT NULL DEFAULT 1
+                         COMMENT 'Alias de hart_device_address para compatibilidad Modbus (1-15)',
+  `enabled`              TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '1=activo, 0=deshabilitado/ignorado',
+  `updated_at`           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`channel_idx`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Configuracion de canales Modbus HART';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Configuracion de canales Modbus HART (HRT-711 multi-drop)';
 
--- Initial 15 HART channels (HART_CH0 enabled by default, others disabled)
-INSERT INTO `hart_channel_config` (channel_idx, v_name, description, slave_id, enabled) VALUES
-(0, 'HART_CH0', 'Instrumento HART 1', 1, 1),
-(1, 'HART_CH1', 'Instrumento HART 2', 2, 0),
-(2, 'HART_CH2', 'Instrumento HART 3', 3, 0),
-(3, 'HART_CH3', 'Instrumento HART 4', 4, 0),
-(4, 'HART_CH4', 'Instrumento HART 5', 5, 0),
-(5, 'HART_CH5', 'Instrumento HART 6', 6, 0),
-(6, 'HART_CH6', 'Instrumento HART 7', 7, 0),
-(7, 'HART_CH7', 'Instrumento HART 8', 8, 0),
-(8, 'HART_CH8', 'Instrumento HART 9', 9, 0),
-(9, 'HART_CH9', 'Instrumento HART 10', 10, 0),
-(10, 'HART_CH10', 'Instrumento HART 11', 11, 0),
-(11, 'HART_CH11', 'Instrumento HART 12', 12, 0),
-(12, 'HART_CH12', 'Instrumento HART 13', 13, 0),
-(13, 'HART_CH13', 'Instrumento HART 14', 14, 0),
-(14, 'HART_CH14', 'Instrumento HART 15', 15, 0);
+-- 15 canales HART. Todos usan HART Channel 0 (un solo bus físico).
+-- HART Device Address = dirección asignada en el HG Tool a cada instrumento.
+-- Por defecto: slot 0 habilitado con HART Address=1, el resto deshabilitados.
+INSERT INTO `hart_channel_config` (channel_idx, v_name, description, hart_device_address, slave_id, enabled) VALUES
+(0,  'HART_CH0',  'Instrumento HART 1',  1,  1,  1),
+(1,  'HART_CH1',  'Instrumento HART 2',  2,  2,  0),
+(2,  'HART_CH2',  'Instrumento HART 3',  3,  3,  0),
+(3,  'HART_CH3',  'Instrumento HART 4',  4,  4,  0),
+(4,  'HART_CH4',  'Instrumento HART 5',  5,  5,  0),
+(5,  'HART_CH5',  'Instrumento HART 6',  6,  6,  0),
+(6,  'HART_CH6',  'Instrumento HART 7',  7,  7,  0),
+(7,  'HART_CH7',  'Instrumento HART 8',  8,  8,  0),
+(8,  'HART_CH8',  'Instrumento HART 9',  9,  9,  0),
+(9,  'HART_CH9',  'Instrumento HART 10', 10, 10, 0),
+(10, 'HART_CH10', 'Instrumento HART 11', 11, 11, 0),
+(11, 'HART_CH11', 'Instrumento HART 12', 12, 12, 0),
+(12, 'HART_CH12', 'Instrumento HART 13', 13, 13, 0),
+(13, 'HART_CH13', 'Instrumento HART 14', 14, 14, 0),
+(14, 'HART_CH14', 'Instrumento HART 15', 15, 15, 0);
 

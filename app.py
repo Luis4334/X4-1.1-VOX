@@ -98,68 +98,93 @@ _HART_LATEST_RESULTS = {
 _HART_POLL_INTERVAL = 3.0   # segundos entre lecturas HART
 
 def _hart_background_poller():
-    """Hilo daemon que lee los 15 canales HART de la BD secuencialmente."""
+    """Hilo daemon que lee los canales HART habilitados de la BD secuencialmente.
+
+    Arquitectura HRT-711 (confirmada con HG Tool v1.6):
+      - UN SOLO slave Modbus = el gateway (slave_id de HART_CONFIG, FIJO).
+      - Cada instrumento se diferencia por la DIRECCION DE REGISTRO:
+          addr = 1300 + (hart_device_index x 10)
+      - hart_device_index = N en 'HART Device N' del HG Tool (0-based).
+      - hart_device_address = direccion HART fisica en el bus (informativo).
+
+      Ejemplos:
+        HART Device 0 -> addr 1300 | HART Device 2 -> addr 1320
+    """
     from python_migration.comunicacion_hart import leer_instrumento_hart
     hart_logger = logging.getLogger("orinoco.hart.poller")
-    hart_logger.info("⏳ Poller HART multicanal iniciado (intervalo %.1fs)" % _HART_POLL_INTERVAL)
+    hart_logger.info("Poller HART iniciado (intervalo %.1fs)" % _HART_POLL_INTERVAL)
+
     while True:
         try:
-            # 1. Cargar configuración de canales de la base de datos
+            # 1. Cargar configuracion de canales desde la BD
             channels = db_exec("SELECT * FROM hart_channel_config ORDER BY channel_idx")
             if not channels:
-                # Fallback si está vacío
+                # Fallback: solo Device 0 habilitado
                 channels = [
                     {
-                        "channel_idx": i,
-                        "v_name": f"HART_CH{i}",
-                        "description": f"Instrumento HART {i+1}",
-                        "slave_id": i + 1,
-                        "enabled": 1 if i == 0 else 0
+                        "channel_idx":         i,
+                        "v_name":              f"HART_CH{i}",
+                        "description":         f"Instrumento HART {i+1}",
+                        "hart_device_index":   i,
+                        "hart_device_address": i + 1,
+                        "enabled":             1 if i == 0 else 0
                     }
                     for i in range(15)
                 ]
-            
-            # 2. Pollear secuencialmente cada canal
+
+            # 2. Pollear cada canal habilitado secuencialmente
             for ch in channels:
                 idx = int(ch["channel_idx"])
-                
+
                 if not ch.get("enabled", 1):
-                    # Si no está habilitado, poner estado desconectado/deshabilitado
                     with _HART_CACHE_LOCK:
                         _HART_LATEST_RESULTS[idx] = {
-                            "connected": False,
-                            "error": "Deshabilitado",
-                            "status": 0,
-                            "pv_current": 0.0,
+                            "connected": False, "error": "Deshabilitado",
+                            "status": 0, "pv_current": 0.0,
                             "pv1": {"value": 0.0, "unit": "-"},
                             "pv2": {"value": 0.0, "unit": "-"},
                             "pv3": {"value": 0.0, "unit": "-"},
                             "pv4": {"value": 0.0, "unit": "-"},
                         }
                     continue
-                
-                # Configuración Modbus para este esclavo
+
+                # hart_device_index = N en 'HART Device N' del HG Tool
+                # Si la columna no existe en la BD, usar channel_idx como fallback
+                dev_index = ch.get('hart_device_index')
+                if dev_index is None:
+                    dev_index = idx   # fallback
+                dev_index = int(dev_index)
+
+                # slave_id = slave del GATEWAY (el mismo para TODOS los canales)
+                gateway_slave = max(1, int(HART_CONFIG.get('slave_id', 1)))
+
                 cfg = {
-                    'mode':          HART_CONFIG.get('mode', 'tcp'),
-                    'ip':            HART_CONFIG.get('ip', '192.168.255.1'),
-                    'port':          int(HART_CONFIG.get('port', 502)),
-                    'com_port':      HART_CONFIG.get('com_port', 'COM3'),
-                    'baudrate':      int(HART_CONFIG.get('baudrate', 9600)),
-                    'slave_id':      max(1, int(ch.get('slave_id', idx + 1))),  # Nunca 0
-                    'start_address': 1300,  # Usar Float Only (Formato 1)
+                    'mode':                HART_CONFIG.get('mode', 'tcp'),
+                    'ip':                  HART_CONFIG.get('ip', '192.168.255.1'),
+                    'port':                int(HART_CONFIG.get('port', 502)),
+                    'com_port':            HART_CONFIG.get('com_port', 'COM3'),
+                    'baudrate':            int(HART_CONFIG.get('baudrate', 9600)),
+                    'slave_id':            gateway_slave,   # FIJO (slave del gateway)
+                    'hart_device_index':   dev_index,       # N del HG Tool -> direccion
+                    'hart_device_address': ch.get('hart_device_address', dev_index + 1),
                 }
-                
+
+                hart_logger.debug(
+                    f"[Poller] CH{idx} '{ch.get('description','')}' "
+                    f"-> Device{dev_index} addr={1300 + dev_index * 10} slave={gateway_slave}"
+                )
+
                 result = leer_instrumento_hart(cfg)
-                
+
                 with _HART_CACHE_LOCK:
                     _HART_LATEST_RESULTS[idx] = result
-                
-                # Pequeño retardo entre peticiones para no colapsar el bus/gateway
-                time.sleep(0.1)
-                
+
+                # Retardo entre lecturas para no saturar el bus HART
+                time.sleep(0.5)
+
         except Exception as ex:
             hart_logger.error(f"[Poller] Error inesperado en loop HART: {ex}")
-            
+
         time.sleep(_HART_POLL_INTERVAL)
 
 
@@ -947,34 +972,69 @@ def get_hart_channels_config():
 @app.route("/api/hart/config/channels", methods=["POST"])
 def save_hart_channel_config():
     """
-    Guarda (UPSERT) la configuración de un canal HART en la BD.
-    Payload: { channel_idx, v_name, description, slave_id, enabled }
+    Guarda (UPSERT) la configuracion de un canal HART en la BD.
+    Payload: { channel_idx, v_name, description, hart_device_index, hart_device_address, enabled }
+
+    hart_device_index   = N en 'HART Device N' del HG Tool (0-based).
+                          Determina la direccion Modbus: 1300 + N x 10.
+    hart_device_address = Direccion HART fisica en el bus (1-15, informativo).
     """
     d = request.get_json() or {}
-    required = ["channel_idx", "v_name", "description", "slave_id"]
+    required = ["channel_idx", "v_name", "description"]
     if not all(k in d for k in required):
         return jsonify({"error": "Faltan campos requeridos"}), 400
 
+    # hart_device_index = N en 'HART Device N' -> determina direccion Modbus
+    dev_index = d.get('hart_device_index')
+    if dev_index is None:
+        dev_index = int(d["channel_idx"])  # fallback
+    dev_index = max(0, int(dev_index))
+
+    # hart_device_address = direccion HART fisica (informativo)
+    hart_addr = d.get('hart_device_address')
+    if hart_addr is None:
+        hart_addr = d.get('slave_id', dev_index + 1)
+    hart_addr = max(0, int(hart_addr))
+
+    modbus_addr = 1300 + dev_index * 10
+
     db_exec(
         """INSERT INTO hart_channel_config
-             (channel_idx, v_name, description, slave_id, enabled)
-           VALUES (%s,%s,%s,%s,%s)
+             (channel_idx, v_name, description,
+              hart_device_index, hart_device_address, slave_id, enabled)
+           VALUES (%s,%s,%s,%s,%s,%s,%s)
            ON DUPLICATE KEY UPDATE
-             description=%s, slave_id=%s, enabled=%s, updated_at=NOW()""",
+             description=%s,
+             hart_device_index=%s, hart_device_address=%s, slave_id=%s,
+             enabled=%s, updated_at=NOW()""",
         (
             int(d["channel_idx"]),
             d["v_name"],
             d["description"],
-            int(d["slave_id"]),
+            dev_index,
+            hart_addr,
+            hart_addr,
             bool(d.get("enabled", True)),
-            # ON DUPLICATE KEY values:
+            # ON DUPLICATE KEY:
             d["description"],
-            int(d["slave_id"]),
+            dev_index,
+            hart_addr,
+            hart_addr,
             bool(d.get("enabled", True)),
         ),
         fetch=False,
     )
-    return jsonify({"ok": True, "channel_idx": d["channel_idx"]})
+    logger.info(
+        f"[HART] Canal {d['channel_idx']} guardado: "
+        f"Device{dev_index} modbus_addr={modbus_addr} HART_bus={hart_addr}"
+    )
+    return jsonify({
+        "ok": True,
+        "channel_idx":         d["channel_idx"],
+        "hart_device_index":   dev_index,
+        "hart_device_address": hart_addr,
+        "modbus_addr":         modbus_addr,
+    })
 
 # ─────────────────────────────────────────────────────────────
 # WebSocket Events
@@ -1040,39 +1100,44 @@ def ws_toggle_lazos(_data=None):
 # Entrypoint
 # ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    import sys
+    # Forzar stdout a UTF-8 para evitar UnicodeEncodeError en Windows (cp1252)
+    if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
     print("\n" + "=" * 60)
-    print("  MFM ORINOCO — SoftPLC + Flask «Todo en Uno»")
+    print("  MFM ORINOCO -- SoftPLC + Flask 'Todo en Uno'")
     print("  Arquitectura: Memoria Compartida (objeto V)")
     print("=" * 60)
 
-    # ── Restaurar configuración DAQ desde BD ──────────────────
+    # -- Restaurar configuracion DAQ desde BD --
     _load_daq_connection_from_db()
-    
-    # ── Restaurar mapeo de canales DAQ desde BD ──────────────
+
+    # -- Restaurar mapeo de canales DAQ desde BD --
     _load_daq_channels_from_db()
 
-    # ── Arrancar Hilo 1: ScanEngine (100 ms, daemon) ──────────
-    # start() crea su propio threading.Thread internamente
+    # -- Arrancar Hilo 1: ScanEngine (100 ms, daemon) --
     plc_engine.start()
-    print(f"  ✅ SoftPLC ScanEngine activo ({len(PHASE_REGISTRY)} fases, 100 ms)")
+    print(f"  [OK] SoftPLC ScanEngine activo ({len(PHASE_REGISTRY)} fases, 100 ms)")
 
-    # ── Arrancar Hilo 2: WebSocket Updater (500 ms, daemon) ───
+    # -- Arrancar Hilo 2: WebSocket Updater (500 ms, daemon) --
     ws_thread = threading.Thread(target=websocket_updater, daemon=True, name="WSUpdater")
     ws_thread.start()
-    print("  ✅ WebSocket Updater activo (500 ms)")
+    print("  [OK] WebSocket Updater activo (500 ms)")
 
-    # ── Arrancar Hilo 3: HART Background Poller (daemon) ──────
+    # -- Arrancar Hilo 3: HART Background Poller (daemon) --
     hart_thread = threading.Thread(target=_hart_background_poller, daemon=True, name="HARTPoller")
     hart_thread.start()
-    print(f"  ✅ HART Poller activo (cada {_HART_POLL_INTERVAL}s) → {HART_CONFIG.get('ip')}:{HART_CONFIG.get('port')} slave={HART_CONFIG.get('slave_id')}")
+    print(f"  [OK] HART Poller activo (cada {_HART_POLL_INTERVAL}s) -> {HART_CONFIG.get('ip')}:{HART_CONFIG.get('port')} (multi-drop, HART Device Address por canal)")
 
-    print("  → http://localhost:5000")
+    print("  -> http://localhost:5000")
     print("=" * 60 + "\n")
 
     try:
         socketio.run(app, host="0.0.0.0", port=5000,
                      debug=False, allow_unsafe_werkzeug=True)
     except KeyboardInterrupt:
-        print("\n⏹  Deteniendo SoftPLC...")
+        print("\nDeteniendo SoftPLC...")
         plc_engine.stop()
-        print("  Motor detenido. Adiós.")
+        print("  Motor detenido. Adios.")
+

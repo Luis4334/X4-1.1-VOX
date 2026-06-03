@@ -2226,13 +2226,13 @@ const HartConfigPage = {
               <th class="px-3 py-2 text-left text-gray-400 font-semibold w-12">N°</th>
               <th class="px-3 py-2 text-left text-gray-400 font-semibold w-40">Variable V (fija)</th>
               <th class="px-3 py-2 text-left text-gray-400 font-semibold">Descripción / Tag</th>
-              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-32">Slave ID</th>
+              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-36">HART Device Address</th>
               <th class="px-3 py-2 text-center text-gray-400 font-semibold w-20">Estado</th>
               <th class="px-3 py-2 text-right text-gray-400 font-semibold w-24">PV Current</th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 1 (Flow)</th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 2 (DP)</th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 3 (SP)</th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 4 (Temp)</th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 1</th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 2</th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 3</th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 4</th>
               <th class="px-3 py-2 text-center text-gray-400 font-semibold w-16">Editar</th>
             </tr>
           </thead>
@@ -2259,21 +2259,34 @@ const HartConfigPage = {
                 <span v-else class="text-gray-200 font-medium">{{ ch.desc || '—' }}</span>
               </td>
               
-              <!-- Slave ID -->
+              <!-- HART Device Index + Address -->
               <td class="px-3 py-2 text-center">
-                <div v-if="editingCh === ch.channel_idx" class="flex flex-col gap-1 items-center">
-                  <select v-model.number="editForms[ch.channel_idx].slave_id"
-                          class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-1.5 py-1 outline-none focus:border-accent-blue font-mono">
-                    <option v-for="num in Array.from({length: 15}, (_, i) => i + 1)" :key="num" :value="num">
-                      ID: {{ num }}
-                    </option>
-                  </select>
-                  <label class="inline-flex items-center gap-1 mt-1 text-[10px] text-gray-400">
+                <div v-if="editingCh === ch.channel_idx" class="flex flex-col gap-1.5 items-center">
+                  <div class="flex flex-col gap-0.5">
+                    <label class="text-[10px] text-accent-yellow font-bold">Device Index (N)</label>
+                    <select v-model.number="editForms[ch.channel_idx].hart_device_index"
+                            class="bg-bg-primary border border-accent-yellow/50 text-white text-xs rounded px-1.5 py-1 outline-none focus:border-accent-yellow font-mono">
+                      <option v-for="n in Array.from({length: 15}, (_, i) => i)" :key="n" :value="n">
+                        Device {{ n }} (addr {{ 1300 + n*10 }})
+                      </option>
+                    </select>
+                  </div>
+                  <div class="flex flex-col gap-0.5">
+                    <label class="text-[10px] text-gray-400">HART Addr (bus)</label>
+                    <input v-model.number="editForms[ch.channel_idx].hart_device_address"
+                           type="number" min="0" max="15"
+                           class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-1.5 py-1 outline-none focus:border-accent-blue font-mono w-20" />
+                  </div>
+                  <label class="inline-flex items-center gap-1 text-[10px] text-gray-400">
                     <input type="checkbox" v-model="editForms[ch.channel_idx].enabled" />
                     Habilitar
                   </label>
                 </div>
-                <span v-else class="font-mono font-bold text-accent-yellow">ID:{{ ch.slave_id }}</span>
+                <div v-else class="flex flex-col items-center leading-tight gap-0.5">
+                  <span class="font-mono font-bold text-accent-yellow text-xs">Device {{ ch.hart_device_index }}</span>
+                  <span class="text-[10px] text-cyan-400 font-mono">reg:{{ 1300 + ch.hart_device_index * 10 }}</span>
+                  <span class="text-[10px] text-gray-500">HART addr:{{ ch.hart_device_address }}</span>
+                </div>
               </td>
               
               <!-- Estado -->
@@ -2420,9 +2433,10 @@ const HartConfigPage = {
     function startEdit(ch) {
       editingCh.value = ch.channel_idx;
       editForms[ch.channel_idx] = {
-        description: ch.desc || '',
-        slave_id: ch.slave_id,
-        enabled: ch.enabled
+        description:          ch.desc || '',
+        hart_device_index:    ch.hart_device_index,
+        hart_device_address:  ch.hart_device_address,
+        enabled:              ch.enabled
       };
     }
 
@@ -2432,23 +2446,24 @@ const HartConfigPage = {
         const r = await fetch('/api/hart/config/channels', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            channel_idx: ch.channel_idx,
-            v_name: ch.v_name,
-            description: f.description,
-            slave_id: f.slave_id,
-            enabled: f.enabled
+            channel_idx:          ch.channel_idx,
+            v_name:               ch.v_name,
+            description:          f.description,
+            hart_device_index:    f.hart_device_index,    // N en HART Device N (addr=1300+N*10)
+            hart_device_address:  f.hart_device_address,  // Direccion HART fisica (informativo)
+            enabled:              f.enabled
           }),
         });
         if (r.ok) {
-          showToast(`✅ ${ch.v_name} guardado exitosamente`);
+          showToast(`Guardado: ${ch.v_name} (Device${f.hart_device_index}, addr=${1300 + f.hart_device_index * 10})`);
           editingCh.value = null;
           await loadDbConfig();
           await loadLive();
         } else {
-          showToast('❌ Error al guardar', false);
+          showToast('Error al guardar', false);
         }
       } catch (e) {
-        showToast('❌ Error de red', false);
+        showToast('Error de red', false);
       }
     }
 
@@ -2460,25 +2475,38 @@ const HartConfigPage = {
         const dbCh = dbByIdx[i] || {};
         const liveCh = liveChannels.value.find(ch => ch.channel_idx === i) || {};
 
+        // hart_device_index = N en 'HART Device N' (determina la direccion Modbus)
+        // Fallback: usar channel_idx si la columna no existe
+        const devIndex = dbCh.hart_device_index !== undefined
+          ? Number(dbCh.hart_device_index)
+          : i;
+
+        // hart_device_address = direccion HART fisica en el bus (informativo)
+        const devAddr = dbCh.hart_device_address !== undefined
+          ? Number(dbCh.hart_device_address)
+          : devIndex + 1;
+
         return {
-          channel_idx: i,
-          v_name: dbCh.v_name || `HART_CH${i}`,
-          desc: dbCh.description || `Instrumento HART ${i+1}`,
-          slave_id: dbCh.slave_id !== undefined ? dbCh.slave_id : i + 1,
-          enabled: dbCh.enabled !== undefined ? !!dbCh.enabled : (i === 0),
-          connected: liveCh.connected || false,
-          error: liveCh.error || null,
-          pv_current: liveCh.pv_current || 0.0,
-          pv1: liveCh.pv1 || { value: 0.0, unit: '-' },
-          pv2: liveCh.pv2 || { value: 0.0, unit: '-' },
-          pv3: liveCh.pv3 || { value: 0.0, unit: '-' },
-          pv4: liveCh.pv4 || { value: 0.0, unit: '-' },
+          channel_idx:          i,
+          v_name:               dbCh.v_name || `HART_CH${i}`,
+          desc:                 dbCh.description || `Instrumento HART ${i+1}`,
+          hart_device_index:    devIndex,
+          hart_device_address:  devAddr,
+          modbus_addr:          1300 + devIndex * 10,   // calculado, solo lectura
+          enabled:              dbCh.enabled !== undefined ? !!dbCh.enabled : (i === 0),
+          connected:            liveCh.connected || false,
+          error:                liveCh.error || null,
+          pv_current:           liveCh.pv_current || 0.0,
+          pv1:                  liveCh.pv1 || { value: 0.0, unit: '-' },
+          pv2:                  liveCh.pv2 || { value: 0.0, unit: '-' },
+          pv3:                  liveCh.pv3 || { value: 0.0, unit: '-' },
+          pv4:                  liveCh.pv4 || { value: 0.0, unit: '-' },
         };
       });
     });
 
-    const fmtCurrent = v => v !== null && v !== undefined && v !== 0 ? parseFloat(v).toFixed(4) + ' mA' : '--';
-    const fmtValue = pv => pv && pv.value !== undefined && pv.value !== 0 ? parseFloat(pv.value).toFixed(2) + ' ' + (pv.unit || '') : '--';
+    const fmtCurrent = v => v !== null && v !== undefined ? parseFloat(v).toFixed(4) + ' mA' : '--';
+    const fmtValue = pv => pv && pv.value !== undefined && pv.value !== null ? parseFloat(pv.value).toFixed(2) + ' ' + (pv.unit || '') : '--';
 
     let liveTimer;
     onMounted(() => {
