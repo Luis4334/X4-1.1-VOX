@@ -1,47 +1,72 @@
-# Documentación del Proyecto: MFM ORINOCO (Arquitectura SoftPLC)
+# Documentación Actualizada del Proyecto: MFM ORINOCO
+**Fecha de Actualización:** Junio 2026
 
-Este documento describe la arquitectura, el funcionamiento y la estructura de archivos del sistema **MFM Orinoco (Medidor de Flujo Multifásico)**, tras la refactorización y migración a una arquitectura "Todo en Uno" que fusiona un entorno web con un controlador SoftPLC basado en Python.
-
-## 📌 Arquitectura General "Todo en Uno"
-
-El proyecto funciona ahora bajo un patrón de **Memoria Compartida**, donde el servidor Flask (Backend) y el motor del SoftPLC se ejecutan de manera simultánea en hilos separados sin bloquearse entre sí.
-
-1. **Memoria Global (`V`)**: El "Cerebro Central" del sistema. Todas las variables de proceso, estados y configuraciones residen en el objeto singleton `V` (definido en `python_migration/global_vars.py`).
-2. **Motor SoftPLC (`ScanEngine`)**: Un hilo en segundo plano (`daemon`) que ejecuta un ciclo de escaneo continuo a una velocidad estricta de 100 ms. En cada ciclo, ejecuta secuencialmente las "Fases" (lectura de DAQ Modbus, cálculos de caudal, PIDs, y escritura en DAQ).
-3. **Servidor Backend (Flask + WebSockets)**: Otro hilo paralelo atiende la API REST y, a través de `websocket_updater()`, emite cada 500 ms una "foto" pasiva de la memoria global hacia el frontend usando Socket.IO.
-4. **Frontend (Vue 3 + Tailwind CSS)**: Interfaz SPA que recibe los datos en tiempo real para actualizar el dashboard P&ID y gráficas. También envía comandos REST (`/api/pid/<tag>`) que sobrescriben directamente los valores en la memoria global `V`.
-5. **Hardware DAQ (Modbus RTU)**: Comunicación serial (RS-485 / COM) con la tarjeta física de adquisición de datos para leer los transmisores (4-20mA) y comandar las válvulas de presión y nivel.
+Este documento describe de manera integral la arquitectura, módulos principales y el flujo de datos del sistema **MFM Orinoco (Medidor de Flujo Multifásico)** en su estado actual, incluyendo la reciente integración de comunicaciones Modbus HART y la corrección de librerías.
 
 ---
 
-## 📂 Descripción de Archivos Claves
+## 📌 1. Arquitectura General "Todo en Uno"
 
-### 1. `app.py` (Core del Servidor Backend)
-El punto de entrada principal que inicializa todo el ecosistema:
-- **Puente `sys.path`**: Conecta la carpeta de la aplicación web con el subpaquete `python_migration`.
-- **Hilo del SoftPLC**: Arranca `plc_engine.start()`, levantando el motor `ScanEngine` a 100 ms.
-- **Hilo del WebSocket**: Arranca `ws_thread`, ejecutando la función que despacha la data (`process_data`) al frontend cada 500 ms.
-- **API REST**: Provee rutas (`POST /api/pid/<tag>`, `/api/plc/...`) para que las acciones manuales del operador modifiquen valores directamente en el objeto global `V`.
+El sistema funciona bajo una arquitectura robusta de **Memoria Compartida y Múltiples Hilos (Multithreading)**. El servidor web (Flask) y los motores de adquisición de datos residen en la misma aplicación, intercambiando información a través de una memoria global sin bloquearse entre sí.
 
-### 2. `python_migration/` (El Motor SoftPLC)
-Esta carpeta contiene la lógica de control industrial migrada (desde el antiguo PLC ISaGRAF) a Python puro:
-- **`global_vars.py`**: Define la clase singleton `V` donde se alojan todas las variables retenidas y dinámicas.
-- **`scan_engine.py`**: Define el motor de ejecución (`ScanEngine`) que itera sobre el registro de fases lógicas (`PHASE_REGISTRY`).
-- **`modbus_daq.py`**: Singleton que gestiona la conexión serial con la DAQ usando la librería `pymodbus` (Modbus RTU, 9600 baudios).
-- **`fase2_entradas.py`**: Interroga la DAQ física (Modbus) para obtener los registros analógicos crudos de entrada (4-20mA) y los escala a Unidades de Ingeniería.
-- **`fase3_caudal.py`, etc.**: Implementan las fórmulas termodinámicas, compensaciones y cálculos volumétricos del proceso.
-- **`fase8_salidas.py`**: Toma las variables Control Value calculadas por el PID (ej. posiciones para válvulas LCV-03 y PCV-03) y escribe sus valores en la tarjeta DAQ.
+### Los 4 Pilares de la Arquitectura:
 
-### 3. Frontend y Base de Datos
-- **`static/js/app.js`**: El código en Vue 3 que da vida a las páginas del proceso interactivo, tablas de datos crudos y gráficas de tendencias en vivo, actualizando su DOM reactivamente en cuanto llega un paquete de datos por Socket.IO.
-- **`db_setup.sql`**: Script para generar la base de datos MySQL local, aunque ahora el estado vivo principal se sostiene en `V`.
-- **`index.html`**: Punto de montaje principal de la aplicación y carga de estilos Tailwind CSS.
+1. **Memoria Global (`V`)**: Definida en `python_migration/global_vars.py`. Es el "cerebro central". Aloja todas las variables de proceso, estados de configuración, PID y resultados de la DAQ.
+2. **Motor SoftPLC (`ScanEngine`)**: Hilo en segundo plano que corre a un intervalo estricto de **100 ms**. Ejecuta el control en tiempo real iterando sobre 9 "Fases" (adquisición Modbus, cálculos de caudal, lazos PID y escritura a válvulas).
+3. **Poller HART (`HARTPoller`)**: Nuevo hilo en segundo plano que interroga al Gateway Modbus HART cada **3 segundos**. Decodifica variables multivariables avanzadas independientemente del ciclo rápido del SoftPLC.
+4. **Servidor Backend y WebSockets (Flask + Socket.IO)**: 
+   - Provee una API REST para interacción del usuario (cambio de SP, modo manual/automático, configuración).
+   - Un hilo dedicado (`websocket_updater`) que toma "fotografías" de la memoria `V` cada **500 ms** y las emite al frontend.
+5. **Frontend Reactivo (Vue 3)**: Interfaz de usuario SPA que actualiza en tiempo real el P&ID, gráficas de tendencias y configuraciones, consumiendo el stream de WebSockets.
 
 ---
 
-## ⚙️ Flujo General de Trabajo (Data Flow)
+## ⚙️ 2. Componentes Principales y Flujo de Datos
 
-1. **Arranque**: Al ejecutar `python app.py`, se inicializa la aplicación web Flask y se disparan los hilos en segundo plano del SoftPLC y los WebSockets. Inmediatamente el SoftPLC inicializa la conexión Modbus RTU en el puerto COM asignado.
-2. **Ciclo PLC (100 ms)**: El motor del SoftPLC interroga a la DAQ, lee los valores brutos, realiza los cálculos de control, aplica las alarmas y actualiza las válvulas físicas o las salidas. Si el sistema está en modo simulación (`V.b_simular_ai = True`), ignora el hardware de entrada y genera sus propios estímulos para simular la planta.
-3. **Ciclo Web (500 ms)**: El servidor toma un pantallazo asíncrono de las variables más relevantes en `V` y se lo inyecta a los clientes Vue 3 a través de WebSockets, permitiendo la visualización a los operadores de forma amigable y responsiva.
-4. **Interacción de Usuario**: El operador presiona un botón para pasar a modo manual (ej. LCV-01). El frontend envía una petición REST. Flask toma esa petición y modifica de inmediato la variable en memoria (`V.b_MAN_LC = True`). En la próxima iteración del ciclo de 100 ms, el SoftPLC reconoce que está en manual y acata la nueva instrucción, abriendo o cerrando físicamente la válvula mediante el Modbus.
+### 2.1 Adquisición de Datos Principal (DAQ Modbus RTU)
+- **Archivos:** `modbus_daq.py`, `fase2_entradas.py`, `fase8_salidas.py`
+- **Funcionamiento:** Se conecta a la DAQ principal por puerto Serial (COM) utilizando `pymodbus`. Lee los canales analógicos de los transmisores (4-20mA), aplica escalado a Unidades de Ingeniería, y escribe las señales de control (Control Value) hacia las válvulas LCV y PCV.
+- **Actualización Reciente:** La configuración de canales es dinámica y se lee desde la base de datos MySQL (`daq_channel_config`). Se resolvió el error de versión de `pymodbus` actualizando el parámetro `slave` por `device_id`.
+
+### 2.2 Integración Modbus HART (Gateway ICP DAS HRT-711)
+- **Archivos:** `comunicacion_hart.py`, `_hart_background_poller` en `app.py`.
+- **Funcionamiento:** Soporta Modbus TCP y RTU. Lee desde el Gateway registros Modbus a partir de la dirección `1300`.
+- **Decodificación Avanzada:** Los datos flotantes IEEE 754 se extraen realizando un byte-swapping (Formato BADC). Cada lectura extrae 4 variables de proceso principales del instrumento (Rosemount):
+  - **PV1:** Caudal (ej. SCFH)
+  - **PV2:** Presión Diferencial (ej. inH2O)
+  - **PV3:** Presión Estática (ej. psi) - *Incluye compensación de +14.5 para presión absoluta.*
+  - **PV4:** Temperatura (ej. °F)
+- **Configuración:** Almacenada dinámicamente en el archivo local `hart_config.json`.
+
+### 2.3 Lógica de Control (SoftPLC)
+- **Ubicación:** Carpeta `python_migration/`
+- Emula el funcionamiento cíclico de un PLC industrial:
+  - **Fase 2 (Entradas):** Lectura física de la DAQ.
+  - **Fase 3 (Cálculos):** Cálculos termodinámicos, densidad y flujo multivariables.
+  - **Fase 6 (PID):** Ejecución de los lazos de control cerrados para Nivel (LIC-01) y Presión (PIC-01) utilizando las variables del objeto `V`.
+  - **Fase 8 (Salidas):** Escritura física a la DAQ de las posiciones de válvulas calculadas.
+
+### 2.4 Almacenamiento y Base de Datos
+- **Motor:** MySQL / MariaDB (conexión gestionada por un pool en `app.py`).
+- **Uso:** 
+  - Historización de datos: El backend inserta muestras del proceso en `lecturas_proceso` periódicamente.
+  - Persistencia de configuraciones (Alarmas, Canales DAQ, Conexiones).
+
+---
+
+## 🔄 3. Ciclo de Interacción (Data Flow)
+
+1. **Arranque:** Al ejecutar `python app.py`, se levantan las conexiones Modbus, los hilos de adquisición (SoftPLC y HART) y el servidor web.
+2. **Escaneo Base (Hardware -> Memoria):** El SoftPLC y el hilo HART consultan independientemente el hardware y depositan los valores convertidos y calculados en la memoria global `V` y en la caché HART.
+3. **Difusión (Memoria -> Interfaz):** Cada 500ms, el hilo `websocket_updater` recolecta la información de `V`, empaqueta el estado del proceso, PIDs, y datos HART, y lo envía por Socket.IO. El Frontend en Vue 3 re-renderiza inmediatamente la pantalla.
+4. **Comandos (Interfaz -> Memoria):** Si el operador hace un cambio (ej. pasar la válvula de Nivel a modo Manual y fijar 50% de apertura), el Frontend envía una petición REST. Flask intercepta, sobrescribe la variable en memoria (`V.b_MAN_LC = True`, `V.r_LEVEL_PID_03_CVOverride = 50.0`). En el siguiente ciclo de 100ms, el SoftPLC detecta el cambio, puentea el cálculo PID y escribe el valor directamente al Modbus.
+
+---
+
+## 🚀 4. Puesta en Marcha
+
+Para iniciar el sistema completo:
+1. Asegurar que MySQL esté ejecutándose con la base de datos `x4` cargada.
+2. Ejecutar `start.bat` o `python app.py`.
+3. Navegar en el explorador a `http://localhost:5000/`.
+4. Monitorear los logs en consola para confirmar la conexión de los hilos de SoftPLC y HART a sus respectivos Gateways Modbus.

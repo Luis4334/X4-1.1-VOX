@@ -394,11 +394,14 @@ def p02_entradas():
                      V.r_SCL_LIT_InEUMin, V.r_SCL_LIT_InEUMax)
     V.r_LIT_001 = _hll_LIT.execute(_scl_LIT.r_Out, 0.0, 100.0)
 
-    # Temperatura de Aceite (TIT_01)
-    _scl_TIT.execute(V.r_Local_4_I_Ch2Data,
-                     V.r_SCL_TIT_InRawMin, V.r_SCL_TIT_InRawMax,
-                     V.r_SCL_TIT_InEUMin, V.r_SCL_TIT_InEUMax)
-    V.r_T_Oil_C = _hll_TIT.execute(_scl_TIT.r_Out, 0.0, 300.0)
+    # Temperatura de Aceite (TIT_01) — omitir si HART FIT-02 está activo
+    # Cuando V.b_habilitar_F_HART es True, la conversión °F→°C ya fue aplicada
+    # por el HARTPoller e inyectada directamente en V.r_T_Oil_C.
+    if not V.b_habilitar_F_HART:
+        _scl_TIT.execute(V.r_Local_4_I_Ch2Data,
+                         V.r_SCL_TIT_InRawMin, V.r_SCL_TIT_InRawMax,
+                         V.r_SCL_TIT_InEUMin, V.r_SCL_TIT_InEUMax)
+        V.r_T_Oil_C = _hll_TIT.execute(_scl_TIT.r_Out, 0.0, 300.0)
 
     # Flujo Transmisor Gas (selector Vortex / Wedge / MV)
     if V.b_Sw_Wedge_Gas:
@@ -410,17 +413,21 @@ def p02_entradas():
                           V.r_SCL_VORTEX_Q_01_InEUMin, V.r_SCL_VORTEX_Q_01_InEUMax)
     V.r_Transmisor_Gas = _hll_VORTEX_Q.execute(_scl_VORTEX_Q.r_Out, 0.0, 10000.0)
 
-    # Presión de Gas (PT_01)
-    _scl_PT.execute(V.r_Local_4_I_Ch4Data,
-                    V.r_SCL_PT_InRawMin, V.r_SCL_PT_InRawMax,
-                    V.r_SCL_PT_InEUMin, V.r_SCL_PT_InEUMax)
-    V.r_P_Gas = _hll_PT.execute(_scl_PT.r_Out, 0.0, 1000.0)
+    # Presión de Gas (PT_01) — omitir si HART FIT-03 (Device 4) está activo
+    # Cuando b_habilitar_F_HART es True y Device 4 está conectado, el valor
+    # ya fue inyectado en V.r_P_Gas por el HARTPoller.
+    if not V.b_habilitar_F_HART:
+        _scl_PT.execute(V.r_Local_4_I_Ch4Data,
+                        V.r_SCL_PT_InRawMin, V.r_SCL_PT_InRawMax,
+                        V.r_SCL_PT_InEUMin, V.r_SCL_PT_InEUMax)
+        V.r_P_Gas = _hll_PT.execute(_scl_PT.r_Out, 0.0, 1000.0)
 
-    # Temperatura de Gas (TIT_02)
-    _scl_VORTEX_T.execute(V.r_Local_4_I_Ch5Data,
-                          V.r_SCL_VORTEX_T_01_InRawMin, V.r_SCL_VORTEX_T_01_InRawMax,
-                          V.r_SCL_VORTEX_T_01_InEUMin, V.r_SCL_VORTEX_T_01_InEUMax)
-    V.r_T_Gas = _hll_VORTEX_T.execute(_scl_VORTEX_T.r_Out, 0.0, 300.0)
+    # Temperatura de Gas (TIT_02) — omitir si HART FIT-03 (Device 4) está activo
+    if not V.b_habilitar_F_HART:
+        _scl_VORTEX_T.execute(V.r_Local_4_I_Ch5Data,
+                              V.r_SCL_VORTEX_T_01_InRawMin, V.r_SCL_VORTEX_T_01_InRawMax,
+                              V.r_SCL_VORTEX_T_01_InEUMin, V.r_SCL_VORTEX_T_01_InEUMax)
+        V.r_T_Gas = _hll_VORTEX_T.execute(_scl_VORTEX_T.r_Out, 0.0, 300.0)
 
     # Water Cut (WC)
     _scl_WC.execute(V.r_Local_4_I_Ch7Data,
@@ -434,29 +441,39 @@ def p02_entradas():
                         V.r_SCL_FIT_05_InEUMin, V.r_SCL_FIT_05_InEUMax)
     V.r_Q_DIL_MEDIDO = _hll_FIT_05.execute(_scl_FIT_05.r_Out, 0.0, 10000.0)
 
-    # Flujo Laminar Alta (FT_01 / PDT_01)
-    _scl_FT_01.execute(V.r_Local_2_I_Ch1Data,
-                       V.r_SCL_FT_01_InRawMin, V.r_SCL_FT_01_InRawMax,
-                       V.r_SCL_FT_01_InEUMin, V.r_SCL_FT_01_InEUMax)
-    V.r_PDT_01 = _hll_FT_01.execute(_scl_FT_01.r_Out, 0.0, 2000.0)
+    # Flujo Laminar Alta (FT_01 / PDT_01) — omitir si HART PDT-01 está activo
+    # Cuando V.b_habilitar_F_HART es True, el valor ya fue inyectado
+    # en V.r_PDT_01 por el hilo HARTPoller (device_index==1, comunicacion_hart.py).
+    if not V.b_habilitar_F_HART:
+        _scl_FT_01.execute(V.r_Local_2_I_Ch1Data,
+                           V.r_SCL_FT_01_InRawMin, V.r_SCL_FT_01_InRawMax,
+                           V.r_SCL_FT_01_InEUMin, V.r_SCL_FT_01_InEUMax)
+        V.r_PDT_01 = _hll_FT_01.execute(_scl_FT_01.r_Out, 0.0, 2000.0)
 
-    # Flujo Wedge (FT_02 / PDT_02)
-    _scl_FT_02.execute(V.r_Local_4_I_Ch0Data,
-                       V.r_SCL_FT_02_InRawMin, V.r_SCL_FT_02_InRawMax,
-                       V.r_SCL_FT_02_InEUMin, V.r_SCL_FT_02_InEUMax)
-    V.r_PDT_02 = _hll_FT_02.execute(_scl_FT_02.r_Out, 0.0, 2000.0)
+    # Flujo Wedge (FT_02 / PDT_02) — omitir si HART FIT-02 está activo
+    # Cuando V.b_habilitar_F_HART es True, el valor ya fue inyectado
+    # directamente en V.r_PDT_02 por el hilo HARTPoller (comunicacion_hart.py).
+    if not V.b_habilitar_F_HART:
+        _scl_FT_02.execute(V.r_Local_4_I_Ch0Data,
+                           V.r_SCL_FT_02_InRawMin, V.r_SCL_FT_02_InRawMax,
+                           V.r_SCL_FT_02_InEUMin, V.r_SCL_FT_02_InEUMax)
+        V.r_PDT_02 = _hll_FT_02.execute(_scl_FT_02.r_Out, 0.0, 2000.0)
 
-    # Flujo Laminar Baja (FT_04 / PDT_03)
-    _scl_FT_04.execute(V.r_Local_2_I_Ch3Data,
-                       V.r_SCL_FT_04_InRawMin, V.r_SCL_FT_04_InRawMax,
-                       V.r_SCL_FT_04_InEUMin, V.r_SCL_FT_04_InEUMax)
-    V.r_PDT_03 = _hll_FT_04.execute(_scl_FT_04.r_Out, 0.0, 1000.0)
+    # Flujo Laminar Baja (FT_04 / PDT_03) — omitir si HART PDT-03 (Device 3) está activo
+    # Cuando b_habilitar_F_HART es True y Device 3 está conectado, el valor
+    # ya fue inyectado en V.r_PDT_03 por el HARTPoller.
+    if not V.b_habilitar_F_HART:
+        _scl_FT_04.execute(V.r_Local_2_I_Ch3Data,
+                           V.r_SCL_FT_04_InRawMin, V.r_SCL_FT_04_InRawMax,
+                           V.r_SCL_FT_04_InEUMin, V.r_SCL_FT_04_InEUMax)
+        V.r_PDT_03 = _hll_FT_04.execute(_scl_FT_04.r_Out, 0.0, 1000.0)
 
-    # Presión de Aceite (PT_02 / P_Oil)
-    _scl_DP_01.execute(V.r_Local_4_I_Ch1Data,
-                       V.r_SCL_DP_01_InRawMin, V.r_SCL_DP_01_InRawMax,
-                       V.r_SCL_DP_01_InEUMin, V.r_SCL_DP_01_InEUMax)
-    V.r_P_Oil = clamp(_scl_DP_01.r_Out, 0.0, 2000.0)
+    # Presión de Aceite (PT_02 / P_Oil) — omitir si HART FIT-02 está activo
+    if not V.b_habilitar_F_HART:
+        _scl_DP_01.execute(V.r_Local_4_I_Ch1Data,
+                           V.r_SCL_DP_01_InRawMin, V.r_SCL_DP_01_InRawMax,
+                           V.r_SCL_DP_01_InEUMin, V.r_SCL_DP_01_InEUMax)
+        V.r_P_Oil = clamp(_scl_DP_01.r_Out, 0.0, 2000.0)
 
     V.i_P02_duracion_mSeg = timer.read()
 

@@ -33,7 +33,7 @@ class GlobalVars:
         # Habilitadores de módulos
         self.b_habilitar_MBus_Son = False
         self.b_habilitar_MBus_Vis = False
-        self.b_habilitar_F_HART = False
+        self.b_habilitar_F_HART = True
         self.b_habilitar_Str_ModB = False
         self.b_habilitar_Loggers = False
         self.b_habilitar_Loggers_ant = False

@@ -16,18 +16,17 @@ La diferencia entre instrumentos NO es por slave_id, sino por la
 DIRECCIÓN DE REGISTRO (start_address).
 
   ┌──────────────────┬──────────────────────────────────────────┐
-  │ HG Tool          │ Modbus                                   │
+  │ HG Tool          │ Modbus Float Format                      │
   ├──────────────────┼──────────────────────────────────────────┤
-  │ HART Device 0    │ registros 1300–1309  (10 registros float)│
-  │ HART Device 1    │ registros 1310–1319                      │
-  │ HART Device 2    │ registros 1320–1329                      │
+  │ HART Device 0    │ registros 1300-1309  (10 registros/float)│
+  │ HART Device 1    │ registros 1310-1319                      │
+  │ HART Device 2    │ registros 1320-1329                      │
   │ HART Device N    │ registros 1300 + N×10  a  1309 + N×10   │
   └──────────────────┴──────────────────────────────────────────┘
 
-  Confirmación desde HG Tool:
-    HART Device 0, Default CMD(3): Cmd In Address = 1236 (raw)
-    → Implica HART Device 0 en Float Format: base 1300 + 0×10 = 1300
-    → HART Device 2 en Float Format: 1300 + 2×10 = 1320
+  Nota: 1236 es la dirección CMD In (raw HART packet) visible en HG Tool.
+  El bloque Float Format (donde viven PV/SV/TV/QV) empieza en 1300.
+  Stride = 26 registros por device (1300 + N×10).
 
   Parámetros clave:
     • hart_device_index  = N en "HART Device N" del HG Tool (0-based)
@@ -50,14 +49,51 @@ from pymodbus.client import ModbusTcpClient, ModbusSerialClient
 
 logger = logging.getLogger("orinoco.hart")
 
+# Importación diferida de V para evitar ciclos de importación al arrancar.
+# Se resuelve en la primera llamada real a _parse_registers().
+_V = None
+
+def _get_V():
+    """
+    Retorna el singleton de memoria global V (importación diferida).
+
+    IMPORTANTE — Problema del doble V (sys.path dual):
+      app.py importa  V  como  python_migration.global_vars.V
+      scan_engine.py  importa  V  como  global_vars.V
+      Son DOS objetos distintos en memoria (misma clase, distinta instancia).
+
+    El WebSocket de app.py lee SIEMPRE de python_migration.global_vars.V,
+    por eso este módulo debe inyectar en ESA misma instancia.
+    Buscamos en sys.modules para no re-importar y obtener el objeto correcto.
+    """
+    global _V
+    if _V is None:
+        import sys
+        # Prioridad 1: instancia ya cargada por app.py — la que lee el WebSocket
+        pm_module = sys.modules.get('python_migration.global_vars')
+        if pm_module is not None:
+            _V = pm_module.V
+            return _V
+        # Prioridad 2: instancia del scan engine (fallback en tests unitarios)
+        try:
+            from global_vars import V as _v_instance
+            _V = _v_instance
+        except Exception as e:
+            logger.warning(f"[HART] No se pudo importar V: {e}")
+    return _V
+
 # ── Mapa de registros por instrumento (HRT-711 Float Format) ─
-# El HRT-711 mapea las variables HART a floats IEEE-754 a partir
-# del registro Modbus 1300. Cada instrumento ocupa 10 registros (5 floats).
+# Base real del bloque Float Format: 1300.
+# Cada device ocupa 10 registros (5 floats IEEE-754 BADC).
 #
 # Formula: address = 1300 + device_index x 10
-#   Device 0 -> addr 1300
-#   Device 1 -> addr 1310
-#   Device 2 -> addr 1320
+#   Device  0 -> addr 1300
+#   Device  1 -> addr 1310
+#   Device  2 -> addr 1320
+#   Device 14 -> addr 1440
+#
+# NOTA: La dirección 1236 que muestra HG Tool es el registro CMD In
+# (donde vive el paquete HART crudo), diferente al bloque Float Format.
 FLOAT_FORMAT_BASE   = 1300
 FLOAT_FORMAT_STRIDE = 10
 REGISTER_COUNT      = 10
@@ -251,7 +287,9 @@ def _read_with_retry(client, fn_code: int, address: int, count: int, slave_id: i
 
 # ── Parser de registros ───────────────────────────────────────
 
-def _parse_registers(result, device_index: int = 0):
+def _parse_registers(result, device_index: int = 0, config: dict = None):
+    if config is None:
+        config = {}
     """
     Parsea 10 registros del bloque Float Format del HRT-711.
     Byte order: BADC (propio de ICP DAS, no standard IEEE-754 big/little).
@@ -287,24 +325,109 @@ def _parse_registers(result, device_index: int = 0):
         raw_tv     = decode_badc(regs[6], regs[7]) if len(regs) >= 8 else 0.0
         raw_qv     = decode_badc(regs[8], regs[9]) if len(regs) >= 10 else 0.0
 
-        # ── Mapeo PV → nombre/unidad por instrumento ──────────────────────
-        # Ajusta estos bloques según el tipo real de cada instrumento.
-        # device_index = N en "HART Device N" del HG Tool.
-        # ─────────────────────────────────────────────────────────────────
-        if device_index == 0:
-            # HART Device 0 — Medidor de flujo diferencial (instrumento 1)
-            # PV = Caudal (SCFH) | SV = DP (inH2O) | TV = Pres. estática | QV = Temp
-            pv_1 = raw_pv;               pv1_unit = "SCFH"
-            pv_2 = raw_sv;               pv2_unit = "inH2O"
-            pv_3 = 14.5 + raw_tv;        pv3_unit = "psia"   # psig -> psia
-            pv_4 = raw_qv;               pv4_unit = "F"
+        # Si pv_current es muy bajo (< 1.0 mA), significa que el instrumento
+        # físicamente no está conectado o el lazo está abierto.
+        if pv_current < 1.0:
+            logger.info(f"[HART] Device{device_index} sin corriente (pv_current={pv_current:.4f} mA). Asumiendo instrumento desconectado.")
+            return {
+                "connected":  False,
+                "error":      "Desc.",
+                "status":     0,
+                "pv_current": pv_current,
+                "pv1":        {"value": 0.0, "unit": "---"},
+                "pv2":        {"value": 0.0, "unit": "---"},
+                "pv3":        {"value": 0.0, "unit": "---"},
+                "pv4":        {"value": 0.0, "unit": "---"},
+            }
+
+        # ── Mapeo PV → nombre/unidad basado en instrument_type (rol fijo del slot) ──
+        # instrument_type viene de la BD y determina QUÉ variables inyectar.
+        # hart_device_index determina DÓNDE leer (registro Modbus).
+        # ─────────────────────────────────────────────────────────────────────────────
+        instrument_type = config.get('instrument_type', 'NONE') or 'NONE'
+
+        if instrument_type == 'WEDGE_LIQ':
+            # ── Cuña de Líquido ──────────────────────────────────────────────────
+            pv_1 = raw_pv;            pv1_unit = "SCFH"
+            pv_2 = raw_sv;            pv2_unit = "inH2O"
+            pv_3 = 14.5 + raw_tv;    pv3_unit = "psia"
+            pv_4 = raw_qv;            pv4_unit = "F"
+            try:
+                _v = _get_V()
+                if _v is not None and _v.b_habilitar_F_HART:
+                    _v.r_PDT_02  = pv_2
+                    _v.r_P_Oil   = pv_3
+                    _v.r_T_Oil_C = (pv_4 - 32.0) / 1.8
+                    _v.r_T_Oil_F = pv_4
+                    logger.debug(f"[HART-WEDGE_LIQ] PDT_02={_v.r_PDT_02:.3f} | P_Oil={_v.r_P_Oil:.3f} | T={_v.r_T_Oil_C:.2f}°C")
+            except Exception as _e:
+                logger.warning(f"[HART-WEDGE_LIQ] Error inyectando en V: {_e}")
+
+        elif instrument_type == 'LAMINAR_A':
+            # ── Laminar de Alta ──────────────────────────────────────────────────
+            pv_1 = raw_pv;            pv1_unit = "SCFH"
+            pv_2 = raw_sv;            pv2_unit = "inH2O"
+            pv_3 = 14.5 + raw_tv;    pv3_unit = "psia"
+            pv_4 = raw_qv;            pv4_unit = "F"
+            try:
+                _v = _get_V()
+                if _v is not None and _v.b_habilitar_F_HART:
+                    _v.r_PDT_01 = pv_2
+                    logger.debug(f"[HART-LAMINAR_A] PDT_01={_v.r_PDT_01:.3f} inH2O")
+            except Exception as _e:
+                logger.warning(f"[HART-LAMINAR_A] Error inyectando en V: {_e}")
+
+        elif instrument_type == 'LAMINAR_B':
+            # ── Laminar de Baja ──────────────────────────────────────────────────
+            pv_1 = raw_pv;            pv1_unit = "SCFH"
+            pv_2 = raw_sv;            pv2_unit = "inH2O"
+            pv_3 = 14.5 + raw_tv;    pv3_unit = "psia"
+            pv_4 = raw_qv;            pv4_unit = "F"
+            try:
+                _v = _get_V()
+                if _v is not None and _v.b_habilitar_F_HART:
+                    _v.r_PDT_03 = pv_2
+                    logger.debug(f"[HART-LAMINAR_B] PDT_03={_v.r_PDT_03:.3f} inH2O")
+            except Exception as _e:
+                logger.warning(f"[HART-LAMINAR_B] Error inyectando en V: {_e}")
+
+        elif instrument_type == 'WEDGE_GAS':
+            # ── Cuña de Gas ─────────────────────────────────────────────────────
+            pv_1 = raw_pv;            pv1_unit = "SCFH"
+            pv_2 = raw_sv;            pv2_unit = "inH2O"
+            pv_3 = 14.5 + raw_tv;    pv3_unit = "psia"
+            pv_4 = raw_qv;            pv4_unit = "F"
+            try:
+                _v = _get_V()
+                if _v is not None and _v.b_habilitar_F_HART:
+                    _v.r_DP_gas = pv_2
+                    _v.r_P_Gas  = pv_3
+                    _v.r_T_Gas  = (pv_4 - 32.0) / 1.8
+                    logger.debug(f"[HART-WEDGE_GAS] DP_gas={_v.r_DP_gas:.3f} | P_Gas={_v.r_P_Gas:.3f} | T={_v.r_T_Gas:.2f}°C")
+            except Exception as _e:
+                logger.warning(f"[HART-WEDGE_GAS] Error inyectando en V: {_e}")
+
+        elif instrument_type == 'NIVEL':
+            # ── Nivel del Separador (LIT) ────────────────────────────────────────
+            pv_1 = raw_pv;            pv1_unit = "%"
+            pv_2 = raw_sv;            pv2_unit = "inH2O"
+            pv_3 = 14.5 + raw_tv;    pv3_unit = "psia"
+            pv_4 = raw_qv;            pv4_unit = "F"
+            try:
+                _v = _get_V()
+                if _v is not None and _v.b_habilitar_F_HART:
+                    _v.r_LIT_001 = pv_1
+                    logger.debug(f"[HART-NIVEL] LIT_001={_v.r_LIT_001:.3f} %")
+            except Exception as _e:
+                logger.warning(f"[HART-NIVEL] Error inyectando en V: {_e}")
+
         else:
-            # HART Device N — Instrumento genérico (segundo, tercero, etc.)
-            # Los valores crudos se devuelven con las unidades del instrumento.
-            pv_1 = raw_pv;   pv1_unit = "???"
-            pv_2 = raw_sv;   pv2_unit = "inH2O"
-            pv_3 = raw_tv;   pv3_unit = "psi"
-            pv_4 = raw_qv;   pv4_unit = "degF"
+            # ── NONE / sin asignar — solo muestra, no inyecta ───────────────────
+            pv_1 = raw_pv;   pv1_unit = "EU"
+            pv_2 = raw_sv;   pv2_unit = "EU"
+            pv_3 = raw_tv;   pv3_unit = "EU"
+            pv_4 = raw_qv;   pv4_unit = "EU"
+
 
         status = 0x0400  # HART OK (el bloque float no incluye status nativo)
 
@@ -393,6 +516,26 @@ def leer_instrumento_hart(config=None):
         return {"connected": False, "error": msg}
 
     try:
+        # ── Leer status de comunicación del dispositivo (Registro 1000 + N) ──
+        status_address = 1000 + device_index
+        status_res, _ = _read_with_retry(client, 4, status_address, 1, slave_id, device_index)
+        
+        if not status_res.isError() and len(status_res.registers) > 0:
+            comm_status = status_res.registers[0]
+            if comm_status != 0:
+                logger.info(f"[HART] Device{device_index} reportado Desconectado/Error por el gateway (status=0x{comm_status:04X})")
+                _mark_channel_error(device_index)
+                return {
+                    "connected":  False,
+                    "error":      "Desc.",
+                    "status":     comm_status,
+                    "pv_current": 0.0,
+                    "pv1":        {"value": 0.0, "unit": "---"},
+                    "pv2":        {"value": 0.0, "unit": "---"},
+                    "pv3":        {"value": 0.0, "unit": "---"},
+                    "pv4":        {"value": 0.0, "unit": "---"},
+                }
+
         # ── Intento 1: FC04 — Input Registers ────────────────────────────
         result, fc_used = _read_with_retry(
             client, 4, start_address, register_count, slave_id, device_index
@@ -432,7 +575,7 @@ def leer_instrumento_hart(config=None):
 
         # ── Lectura exitosa ───────────────────────────────────────────────
         _clear_channel_error(device_index)
-        return _parse_registers(result, device_index=device_index)
+        return _parse_registers(result, device_index=device_index, config=config)
 
     except Exception as e:
         logger.error(
@@ -452,9 +595,9 @@ if __name__ == "__main__":
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
     print("=== Prueba HRT-711 multi-instrumento ===")
-    for n in range(4):
+    for n in range(15):
         addr = FLOAT_FORMAT_BASE + n * FLOAT_FORMAT_STRIDE
-        print(f"  Device {n} -> addr {addr}  (1300 + {n}x10)")
+        print(f"  Device {n:2d} -> addr {addr}  (1300 + {n}x10)")
     print()
     for ciclo in range(1, 4):
         print(f"\n--- Ciclo {ciclo} ---")

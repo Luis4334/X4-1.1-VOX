@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // MFM ORINOCO – Vue 3 Application (app.js) v3 – Sidebar + Data Cruda
 // ============================================================
 const { createApp, ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } = Vue;
@@ -308,40 +308,61 @@ const ProcesoPage = {
         </div>
       </div>
 
-      <!-- TAG LI-01 (junto al tanque) -->
-      <div class="pid-tag li-tag" :class="alarmCls('LI_01')">
-        <div class="pt-name">LI-01</div>
+      <!-- TAG LIT-01 (junto al tanque) -->
+      <div class="pid-tag li-tag" :class="alarmCls('LIT_01')">
+        <div class="pt-name">LIT-01</div>
         <div class="pt-val">{{ fmt(proc.LI_01,1) }}<span class="pt-unit"> %</span></div>
         <div class="li-bar-wrap">
           <div class="li-bar-fill" :style="{width: Math.min(100,Math.max(0,proc.LI_01||0))+'%'}"></div>
         </div>
       </div>
-
-      <!-- ════ FILA SUPERIOR: FI-03 | PI-01 | TI-01 ════ -->
-      <div class="pid-tag-group top-row">
-        <div class="pid-tag" :class="alarmCls('FI_03')">
-          <div class="pt-name">FI-03</div>
-          <div class="pt-val">{{ fmt(proc.FI_03,2) }}<span class="pt-unit"> MSCFD</span></div>
-        </div>
-        <div class="pid-tag" :class="alarmCls('PI_01')">
-          <div class="pt-name">PI-01</div>
-          <div class="pt-val">{{ fmt(proc.PI_01,2) }}<span class="pt-unit"> PSIG</span></div>
-        </div>
-        <div class="pid-tag" :class="alarmCls('TI_01')">
-          <div class="pt-name">TI-01</div>
-          <div class="pt-val">{{ fmt(proc.TI_01,2) }}<span class="pt-unit"> °C</span></div>
+<!-- TAG WC (debajo de LIT-01) -->
+      <div class="pid-tag wc-tag" :class="alarmCls('WC_01')">
+        <div class="pt-name">WC</div>
+        <div class="pt-val">{{ fmt(proc.WC,1) }}<span class="pt-unit"> %</span></div>
+        <div class="li-bar-wrap">
+          <div class="li-bar-fill" :style="{width: Math.min(100,Math.max(0,proc.WC||0))+'%'}"></div>
         </div>
       </div>
 
-      <!-- ════ FILA INFERIOR: TI-02 | %GAS-01 | VI-01 ════ -->
+      <!-- TAG LAMINAR A (Gas) -->
+      <div class="pid-tag laminar-a-tag" :class="alarmCls('PDI_01')">
+        <div class="pt-name">Laminar A</div>
+        <div class="pt-val">{{ fmt(proc.PDI_01,2) }}<span class="pt-unit"> inH2O</span></div>
+      </div>
+
+      <!-- TAG WEDGE (Líquido) -->
+      <div class="pid-tag wedge-tag" :class="alarmCls('PDI_02_dp')">
+        <div class="pt-name">Wedge</div>
+        <div class="pt-val">{{ fmt(proc.PDI_02_dp,2) }}<span class="pt-unit"> inH2O</span></div>
+        <div class="pt-val pt-secondary">{{ fmt(proc.P_Oil,2) }}<span class="pt-unit"> PSIG</span></div>
+      </div>
+
+      <!-- ════ FILA SUPERIOR: FIT-03 | PIT-01 | TIT-01 ════ -->
+      <div class="pid-tag-group top-row">
+        <div class="pid-tag" :class="alarmCls('FIT_03')">
+          <div class="pt-name">FIT-03</div>
+          <div class="pt-val">{{ fmt(proc.FIT_03,2) }}<span class="pt-unit"> MSCFD</span></div>
+        </div>
+        <div class="pid-tag" :class="alarmCls('PIT_01')">
+          <div class="pt-name">PIT-01</div>
+          <div class="pt-val">{{ fmt(proc.PIT_01,2) }}<span class="pt-unit"> PSIG</span></div>
+        </div>
+        <div class="pid-tag" :class="alarmCls('TIT_01')">
+          <div class="pt-name">TIT-01</div>
+          <div class="pt-val">{{ fmt(proc.TIT_01,2) }}<span class="pt-unit"> °C</span></div>
+        </div>
+      </div>
+
+      <!-- ════ FILA INFERIOR: TIT-02 | %GAS-01 | VI-01 ════ -->
       <div class="pid-tag-group bot-row">
         <div class="pid-tag" :class="alarmCls('TI_02')">
-          <div class="pt-name">TI-02</div>
+          <div class="pt-name">TIT-02</div>
           <div class="pt-val">
-            <span v-if="alarmCls('TI_02')" class="pt-alarm-icon">🔴</span>
-            {{ fmt(proc.TI_02,1) }}<span class="pt-unit"> °C</span>
+            <span v-if="alarmCls('TIT_02')" class="pt-alarm-icon">🔴</span>
+            {{ fmt(proc.TIT_02,1) }}<span class="pt-unit"> °C</span>
           </div>
-          <div class="pt-val pt-secondary">{{ fmt(proc.TI_02*9/5+32,2) }}<span class="pt-unit"> °F</span></div>
+          <div class="pt-val pt-secondary">{{ fmt(proc.TIT_02_F,2) }}<span class="pt-unit"> °F</span></div>
         </div>
         <div class="pid-tag warn-tag">
           <div class="pt-name">A %GAS-01</div>
@@ -350,9 +371,9 @@ const ProcesoPage = {
             {{ fmt(proc.GAS_01,1) }}<span class="pt-unit"> %</span>
           </div>
         </div>
-        <div class="pid-tag" :class="alarmCls('VI_01')">
-          <div class="pt-name">M VI-01</div>
-          <div class="pt-val">{{ fmt(proc.VI_01,1) }}<span class="pt-unit"> CP</span></div>
+        <div class="pid-tag" :class="alarmCls('VIT_01')">
+          <div class="pt-name">VIT-01</div>
+          <div class="pt-val">{{ fmt(proc.VIT_01,1) }}<span class="pt-unit"> CP</span></div>
         </div>
       </div>
 
@@ -382,16 +403,18 @@ const ProcesoPage = {
 
     <!-- TABLAS INFERIORES -->
     <div class="bottom-grid flex-shrink-0">
-      <div class="bt-cell header"><span class="bt-label">Tasa Est. Líquido</span><span class="bt-value">—</span><span class="bt-label">BBLD</span></div>
-      <div class="bt-cell header"><span class="bt-label">Tasa Est. Crudo</span><span class="bt-value">—</span><span class="bt-label">BBLD</span></div>
-      <div class="bt-cell header"><span class="bt-label">Tasa Est. Diluente</span><span class="bt-value">—</span><span class="bt-label">BBLD</span></div>
-      <div class="bt-cell header"><span class="bt-label">Tasa Est. Agua</span><span class="bt-value">—</span><span class="bt-label">BBLD</span></div>
-      <div class="bt-cell header"><span class="bt-label">Est. Gas Total STD</span><span class="bt-value">{{ fmt(proc.FI_03,3) }}</span><span class="bt-label">MSCFD</span></div>
-      <div class="bt-cell"><span class="bt-label">Q Líquido</span><span class="bt-value">BD</span></div>
-      <div class="bt-cell"><span class="bt-label">Q Crudo</span><span class="bt-value">BD</span></div>
-      <div class="bt-cell"><span class="bt-label">Q Agua</span><span class="bt-value">BD</span></div>
-      <div class="bt-cell"><span class="bt-label">Q Gas Atrapado</span><span class="bt-value">CFD</span></div>
-      <div class="bt-cell"><span class="bt-label">M Q Diluente</span><span class="bt-value">BD</span></div>
+      <!-- Fila 1: Estimados -->
+      <div class="bt-cell header"><span class="bt-label">Est. Qliq</span><span class="bt-value">{{ fmt(proc.Est_Q_Liq,3) }}</span><span class="bt-label">BBLD</span></div>
+      <div class="bt-cell header"><span class="bt-label">Est. Q.Crudo</span><span class="bt-value">{{ fmt(proc.Est_Q_Crudo,3) }}</span><span class="bt-label">BBLD</span></div>
+      <div class="bt-cell header"><span class="bt-label">Est. Q.Diluente</span><span class="bt-value">{{ fmt(proc.Est_Q_Dil,3) }}</span><span class="bt-label">BBLD</span></div>
+      <div class="bt-cell header"><span class="bt-label">Est. Q.Agua</span><span class="bt-value">{{ fmt(proc.Est_Q_Agua,3) }}</span><span class="bt-label">BBLD</span></div>
+      <div class="bt-cell header"><span class="bt-label">Est. Gas Total STD</span><span class="bt-value">{{ fmt(proc.Est_Q_Gas,3) }}</span><span class="bt-label">MSCFD</span></div>
+      <!-- Fila 2: Medidos -->
+      <div class="bt-cell"><span class="bt-label">Q Líquido</span><span class="bt-value">{{ fmt(proc.Q_Liq,3) }}</span><span class="bt-label">BD</span></div>
+      <div class="bt-cell"><span class="bt-label">Q Crudo</span><span class="bt-value">{{ fmt(proc.Q_Crudo,3) }}</span><span class="bt-label">BD</span></div>
+      <div class="bt-cell"><span class="bt-label">Q Agua</span><span class="bt-value">{{ fmt(proc.Q_Agua,2) }}</span><span class="bt-label">BD</span></div>
+      <div class="bt-cell"><span class="bt-label">Q Gas Atrapado</span><span class="bt-value">{{ fmt(proc.FIT_03,3) }}</span><span class="bt-label">MSCFD</span></div>
+      <div class="bt-cell"><span class="bt-label">Q Diluente</span><span class="bt-value">{{ fmt(proc.Q_Dil,3) }}</span><span class="bt-label">BD</span></div>
     </div>
   </div>`,
 
@@ -2145,7 +2168,7 @@ const HartConfigPage = {
     <div class="flex items-center justify-between flex-wrap gap-3">
       <div>
         <h1 class="text-xl font-bold text-white tracking-wide">⚡ Configuración Modbus HART</h1>
-        <p class="text-xs text-gray-400 mt-0.5">Configuración de comunicación y mapeo de instrumentos HART por Slave ID</p>
+        <p class="text-xs text-gray-400 mt-0.5">Tags fijos por slot. Edita la descripción y el HART Device asignado a cada instrumento.</p>
       </div>
       <div class="flex gap-2 flex-wrap">
         <button @click="loadLive"
@@ -2167,9 +2190,15 @@ const HartConfigPage = {
 
     <!-- Parámetros de Conexión Gateway -->
     <div class="bg-bg-card border border-gray-700 rounded-xl p-4 flex flex-col gap-3">
-      <div class="text-sm font-bold text-white mb-1">⚙️ Parámetros de Conexión del Gateway</div>
+      <div class="flex items-center justify-between mb-1">
+        <div class="text-sm font-bold text-white">⚙️ Parámetros de Conexión del Gateway</div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-gray-400">Estado del Gateway:</span>
+          <span v-if="isGatewayConnected" class="px-2 py-0.5 text-xs font-bold rounded bg-green-900/60 text-green-300 border border-green-800">ONLINE</span>
+          <span v-else class="px-2 py-0.5 text-xs font-bold rounded bg-red-900/60 text-red-300 border border-red-800">OFFLINE</span>
+        </div>
+      </div>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <!-- Modo -->
         <div class="flex flex-col gap-1">
           <label class="text-xs text-gray-400">Modo de Comunicación</label>
           <select v-model="connForm.mode"
@@ -2178,8 +2207,6 @@ const HartConfigPage = {
             <option value="rtu">Modbus RTU (Puertos COM) - Opcional</option>
           </select>
         </div>
-
-        <!-- Campos TCP -->
         <template v-if="connForm.mode === 'tcp'">
           <div class="flex flex-col gap-1">
             <label class="text-xs text-gray-400">Dirección IP</label>
@@ -2192,8 +2219,6 @@ const HartConfigPage = {
                    class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
           </div>
         </template>
-
-        <!-- Campos RTU -->
         <template v-if="connForm.mode === 'rtu'">
           <div class="flex flex-col gap-1">
             <label class="text-xs text-gray-400">Puerto COM</label>
@@ -2213,26 +2238,33 @@ const HartConfigPage = {
       </div>
     </div>
 
-    <!-- Instrumentos HART en tiempo real -->
-    <div class="bg-bg-card border border-gray-700 rounded-xl overflow-hidden mt-4">
+    <!-- Tabla de Instrumentos HART -->
+    <div class="bg-bg-card border border-gray-700 rounded-xl overflow-hidden">
       <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
-        <span class="text-sm font-bold text-white">📥 Instrumentos HART (Mapeo por Slave ID)</span>
+        <span class="text-sm font-bold text-white">📥 Instrumentos HART (Mapeo por Slot)</span>
         <span class="text-xs text-gray-500 font-mono">Actualización: cada 5 s</span>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-xs">
           <thead>
             <tr class="border-b border-gray-700 bg-bg-primary">
-              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-12">N°</th>
-              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-40">Variable V (fija)</th>
-              <th class="px-3 py-2 text-left text-gray-400 font-semibold">Descripción / Tag</th>
-              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-36">HART Device Address</th>
+              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-8">N°</th>
+              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-36">Tag / Rol</th>
+              <th class="px-3 py-2 text-left text-gray-400 font-semibold">Descripción</th>
+              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-32">HART Device</th>
               <th class="px-3 py-2 text-center text-gray-400 font-semibold w-20">Estado</th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-24">PV Current</th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 1</th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 2</th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 3</th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">PV 4</th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">
+                PV1 <span class="text-gray-600 font-normal">mA/EU</span>
+              </th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">
+                PV2 <span class="text-gray-600 font-normal">DP/EU</span>
+              </th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">
+                PV3 <span class="text-gray-600 font-normal">P/EU</span>
+              </th>
+              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">
+                PV4 <span class="text-gray-600 font-normal">T/EU</span>
+              </th>
               <th class="px-3 py-2 text-center text-gray-400 font-semibold w-16">Editar</th>
             </tr>
           </thead>
@@ -2240,55 +2272,46 @@ const HartConfigPage = {
             <tr v-for="ch in mergedHartChannels" :key="ch.channel_idx"
                 class="border-b border-gray-800 hover:bg-white/5 transition-colors"
                 :class="!ch.enabled ? 'opacity-40' : ''">
+
               <!-- N° -->
-              <td class="px-3 py-2 text-gray-400 font-mono">{{ ch.channel_idx + 1 }}</td>
-              
-              <!-- Variable V (Fija) -->
+              <td class="px-3 py-2 text-gray-500 font-mono text-center">{{ ch.channel_idx + 1 }}</td>
+
+              <!-- Tag/Rol FIJO -->
               <td class="px-3 py-2">
-                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#0e271a] border border-[#1b5e20] text-xs font-mono font-bold text-accent-green">
-                  🔒 {{ ch.v_name }}
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wide"
+                      :class="ROLES[ch.instrument_type]?.badgeCls || 'bg-gray-700 text-gray-400'">
+                  {{ ROLES[ch.instrument_type]?.label || 'Sin asignar' }}
                 </span>
               </td>
-              
-              <!-- Descripción / Tag -->
+
+              <!-- Descripción: editable o sólo lectura -->
               <td class="px-3 py-2">
-                <span v-if="editingCh === ch.channel_idx">
-                  <input v-model="editForms[ch.channel_idx].description"
-                         class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1 w-full outline-none focus:border-accent-blue" />
-                </span>
+                <input v-if="editingCh === ch.channel_idx"
+                       v-model="editForms[ch.channel_idx].description"
+                       class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1 w-full outline-none focus:border-accent-blue" />
                 <span v-else class="text-gray-200 font-medium">{{ ch.desc || '—' }}</span>
               </td>
-              
-              <!-- HART Device Index + Address -->
+
+              <!-- HART Device: editable o sólo lectura -->
               <td class="px-3 py-2 text-center">
                 <div v-if="editingCh === ch.channel_idx" class="flex flex-col gap-1.5 items-center">
-                  <div class="flex flex-col gap-0.5">
-                    <label class="text-[10px] text-accent-yellow font-bold">Device Index (N)</label>
-                    <select v-model.number="editForms[ch.channel_idx].hart_device_index"
-                            class="bg-bg-primary border border-accent-yellow/50 text-white text-xs rounded px-1.5 py-1 outline-none focus:border-accent-yellow font-mono">
-                      <option v-for="n in Array.from({length: 15}, (_, i) => i)" :key="n" :value="n">
-                        Device {{ n }} (addr {{ 1300 + n*10 }})
-                      </option>
-                    </select>
-                  </div>
-                  <div class="flex flex-col gap-0.5">
-                    <label class="text-[10px] text-gray-400">HART Addr (bus)</label>
-                    <input v-model.number="editForms[ch.channel_idx].hart_device_address"
-                           type="number" min="0" max="15"
-                           class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-1.5 py-1 outline-none focus:border-accent-blue font-mono w-20" />
-                  </div>
-                  <label class="inline-flex items-center gap-1 text-[10px] text-gray-400">
+                  <select v-model.number="editForms[ch.channel_idx].hart_device_index"
+                          class="bg-bg-primary border border-accent-yellow/60 text-white text-xs rounded px-1.5 py-1 outline-none focus:border-accent-yellow font-mono">
+                    <option v-for="n in Array.from({length: 15}, (_, i) => i)" :key="n" :value="n">
+                      HART Device {{ n }}
+                    </option>
+                  </select>
+                  <label class="inline-flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer">
                     <input type="checkbox" v-model="editForms[ch.channel_idx].enabled" />
-                    Habilitar
+                    Habilitado
                   </label>
                 </div>
-                <div v-else class="flex flex-col items-center leading-tight gap-0.5">
-                  <span class="font-mono font-bold text-accent-yellow text-xs">Device {{ ch.hart_device_index }}</span>
-                  <span class="text-[10px] text-cyan-400 font-mono">reg:{{ 1300 + ch.hart_device_index * 10 }}</span>
-                  <span class="text-[10px] text-gray-500">HART addr:{{ ch.hart_device_address }}</span>
+                <div v-else class="flex flex-col items-center gap-0.5 leading-tight">
+                  <span class="font-mono font-bold text-accent-yellow text-xs">HART Device {{ ch.hart_device_index }}</span>
+                  <span class="text-[9px] text-gray-500 font-mono">reg {{ 1300 + ch.hart_device_index * 10 }}</span>
                 </div>
               </td>
-              
+
               <!-- Estado -->
               <td class="px-3 py-2 text-center">
                 <span v-if="!ch.enabled"
@@ -2298,32 +2321,28 @@ const HartConfigPage = {
                 <span v-else
                       class="px-2 py-0.5 text-xs font-bold rounded bg-red-900/60 text-red-300">ERROR</span>
               </td>
-              
-              <!-- PV Current -->
+
+              <!-- PV1 -->
               <td class="px-3 py-2 text-right font-mono">
-                <span>{{ fmtCurrent(ch.pv_current) }}</span>
+                <div class="text-gray-200">{{ fmtValue(ch.pv1) }}</div>
+                <div class="text-[9px] text-gray-500">{{ ROLES[ch.instrument_type]?.pv1lbl || 'EU' }}</div>
               </td>
-              
-              <!-- PV 1 (Flow) -->
+              <!-- PV2 -->
               <td class="px-3 py-2 text-right font-mono">
-                <span>{{ fmtValue(ch.pv1) }}</span>
+                <div class="text-gray-200">{{ fmtValue(ch.pv2) }}</div>
+                <div class="text-[9px] text-gray-500">{{ ROLES[ch.instrument_type]?.pv2lbl || 'EU' }}</div>
               </td>
-              
-              <!-- PV 2 (DP) -->
+              <!-- PV3 -->
               <td class="px-3 py-2 text-right font-mono">
-                <span>{{ fmtValue(ch.pv2) }}</span>
+                <div class="text-gray-200">{{ fmtValue(ch.pv3) }}</div>
+                <div class="text-[9px] text-gray-500">{{ ROLES[ch.instrument_type]?.pv3lbl || 'EU' }}</div>
               </td>
-              
-              <!-- PV 3 (SP) -->
+              <!-- PV4 -->
               <td class="px-3 py-2 text-right font-mono">
-                <span>{{ fmtValue(ch.pv3) }}</span>
+                <div class="text-gray-200">{{ fmtValue(ch.pv4) }}</div>
+                <div class="text-[9px] text-gray-500">{{ ROLES[ch.instrument_type]?.pv4lbl || 'EU' }}</div>
               </td>
-              
-              <!-- PV 4 (Temp) -->
-              <td class="px-3 py-2 text-right font-mono">
-                <span>{{ fmtValue(ch.pv4) }}</span>
-              </td>
-              
+
               <!-- Editar -->
               <td class="px-3 py-2 text-center">
                 <button v-if="editingCh !== ch.channel_idx"
@@ -2341,8 +2360,23 @@ const HartConfigPage = {
         </table>
       </div>
     </div>
-    
-    <!-- Toast interno -->
+
+    <!-- Leyenda de roles -->
+    <div class="bg-bg-card border border-gray-700 rounded-xl p-4">
+      <div class="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wide">Leyenda de Roles — Variables inyectadas</div>
+      <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
+        <div v-for="(r, key) in ROLES" :key="key" class="flex flex-col gap-0.5 bg-bg-primary rounded-lg p-2 border border-gray-800">
+          <span class="px-1.5 py-0.5 rounded text-[10px] font-bold mb-1 w-fit" :class="r.badgeCls">{{ r.label }}</span>
+          <div class="text-[10px] text-gray-500">PV1: <span class="text-gray-300">{{ r.pv1lbl }}</span></div>
+          <div class="text-[10px] text-gray-500">PV2: <span class="text-gray-300">{{ r.pv2lbl }}</span></div>
+          <div class="text-[10px] text-gray-500">PV3: <span class="text-gray-300">{{ r.pv3lbl }}</span></div>
+          <div class="text-[10px] text-gray-500">PV4: <span class="text-gray-300">{{ r.pv4lbl }}</span></div>
+          <div v-if="r.injects" class="mt-1 text-[9px] text-accent-yellow font-mono">→ {{ r.injects }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
     <transition name="fade">
       <div v-if="toast.show"
            class="fixed bottom-6 right-6 px-4 py-2 rounded-lg text-sm font-bold shadow-xl z-50"
@@ -2362,6 +2396,61 @@ const HartConfigPage = {
     const editForms = reactive({});
     const toast = reactive({ show: false, ok: true, msg: '' });
 
+    // ── Definición de roles fijos (coincide con instrument_type en BD) ──────
+    const ROLES = {
+      LAMINAR_A: {
+        label: 'Laminar A',
+        badgeCls: 'bg-yellow-900/70 text-yellow-300 border border-yellow-700',
+        pv1lbl: 'SCFH',
+        pv2lbl: 'DP → r_PDT_01',
+        pv3lbl: 'P [psia]',
+        pv4lbl: 'T [°F]',
+        injects: 'r_PDT_01 ← PV2'
+      },
+      WEDGE_LIQ: {
+        label: 'Wedge Líquido',
+        badgeCls: 'bg-blue-900/70 text-blue-300 border border-blue-700',
+        pv1lbl: 'SCFH',
+        pv2lbl: 'DP → r_PDT_02',
+        pv3lbl: 'P → r_P_Oil',
+        pv4lbl: 'T → r_T_Oil',
+        injects: 'r_PDT_02 | r_P_Oil | r_T_Oil_C/F'
+      },
+      WEDGE_GAS: {
+        label: 'Wedge Gas',
+        badgeCls: 'bg-green-900/70 text-green-300 border border-green-700',
+        pv1lbl: 'SCFH',
+        pv2lbl: 'DP → r_DP_gas',
+        pv3lbl: 'P → r_P_Gas',
+        pv4lbl: 'T → r_T_Gas',
+        injects: 'r_DP_gas | r_P_Gas | r_T_Gas'
+      },
+      LAMINAR_B: {
+        label: 'Laminar B',
+        badgeCls: 'bg-orange-900/70 text-orange-300 border border-orange-700',
+        pv1lbl: 'SCFH',
+        pv2lbl: 'DP → r_PDT_03',
+        pv3lbl: 'P [psia]',
+        pv4lbl: 'T [°F]',
+        injects: 'r_PDT_03 ← PV2'
+      },
+      NIVEL: {
+        label: 'Nivel (LIT)',
+        badgeCls: 'bg-purple-900/70 text-purple-300 border border-purple-700',
+        pv1lbl: '% → r_LIT_001',
+        pv2lbl: 'DP [inH2O]',
+        pv3lbl: 'P [psia]',
+        pv4lbl: 'T [°F]',
+        injects: 'r_LIT_001 ← PV1'
+      },
+      NONE: {
+        label: 'Sin asignar',
+        badgeCls: 'bg-gray-700 text-gray-400',
+        pv1lbl: 'EU', pv2lbl: 'EU', pv3lbl: 'EU', pv4lbl: 'EU',
+        injects: null
+      }
+    };
+
     function showToast(msg, ok = true) {
       toast.msg = msg; toast.ok = ok; toast.show = true;
       setTimeout(() => { toast.show = false; }, 2500);
@@ -2380,22 +2469,14 @@ const HartConfigPage = {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(connForm),
         });
-        if (r.ok) {
-          showToast('✅ Configuración de conexión HART guardada');
-        } else {
-          showToast('❌ Error al guardar', false);
-        }
-      } catch (e) {
-        showToast('❌ Error de red', false);
-      }
+        showToast(r.ok ? '✅ Configuración de conexión HART guardada' : '❌ Error al guardar', r.ok);
+      } catch (e) { showToast('❌ Error de red', false); }
     }
 
     const rebooting = ref(false);
 
     async function rebootGateway() {
-      if (!confirm("¿Está seguro de que desea reiniciar el Gateway ICP DAS HRT-711?\nSe perderá la conexión durante aproximadamente 15 segundos.")) {
-        return;
-      }
+      if (!confirm("¿Está seguro de que desea reiniciar el Gateway ICP DAS HRT-711?\nSe perderá la conexión durante aproximadamente 15 segundos.")) return;
       rebooting.value = true;
       showToast("⏳ Enviando comando de reinicio...");
       try {
@@ -2403,17 +2484,12 @@ const HartConfigPage = {
         const d = await r.json();
         if (r.ok && d.ok) {
           showToast("⚡ " + d.message);
-          setTimeout(() => {
-            loadLive();
-          }, 15000);
+          setTimeout(() => { loadLive(); }, 15000);
         } else {
           showToast("❌ Error: " + (d.error || "No se pudo reiniciar"), false);
         }
-      } catch (e) {
-        showToast("❌ Error de red al conectar con el servidor", false);
-      } finally {
-        rebooting.value = false;
-      }
+      } catch (e) { showToast("❌ Error de red", false); }
+      finally { rebooting.value = false; }
     }
 
     async function loadDbConfig() {
@@ -2433,10 +2509,9 @@ const HartConfigPage = {
     function startEdit(ch) {
       editingCh.value = ch.channel_idx;
       editForms[ch.channel_idx] = {
-        description:          ch.desc || '',
-        hart_device_index:    ch.hart_device_index,
-        hart_device_address:  ch.hart_device_address,
-        enabled:              ch.enabled
+        description:         ch.desc || '',
+        hart_device_index:   ch.hart_device_index,
+        enabled:             ch.enabled,
       };
     }
 
@@ -2446,25 +2521,24 @@ const HartConfigPage = {
         const r = await fetch('/api/hart/config/channels', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            channel_idx:          ch.channel_idx,
-            v_name:               ch.v_name,
-            description:          f.description,
-            hart_device_index:    f.hart_device_index,    // N en HART Device N (addr=1300+N*10)
-            hart_device_address:  f.hart_device_address,  // Direccion HART fisica (informativo)
-            enabled:              f.enabled
+            channel_idx:         ch.channel_idx,
+            v_name:              ch.v_name,
+            description:         f.description,
+            hart_device_index:   f.hart_device_index,
+            hart_device_address: f.hart_device_index,   // alias
+            enabled:             f.enabled,
+            instrument_type:     ch.instrument_type,     // rol fijo: siempre el del slot
           }),
         });
         if (r.ok) {
-          showToast(`Guardado: ${ch.v_name} (Device${f.hart_device_index}, addr=${1300 + f.hart_device_index * 10})`);
+          showToast(`✅ ${ch.instrument_type} → HART Device ${f.hart_device_index} (reg ${1300 + f.hart_device_index * 10})`);
           editingCh.value = null;
           await loadDbConfig();
           await loadLive();
         } else {
-          showToast('Error al guardar', false);
+          showToast('❌ Error al guardar', false);
         }
-      } catch (e) {
-        showToast('Error de red', false);
-      }
+      } catch (e) { showToast('❌ Error de red', false); }
     }
 
     const mergedHartChannels = computed(() => {
@@ -2475,57 +2549,42 @@ const HartConfigPage = {
         const dbCh = dbByIdx[i] || {};
         const liveCh = liveChannels.value.find(ch => ch.channel_idx === i) || {};
 
-        // hart_device_index = N en 'HART Device N' (determina la direccion Modbus)
-        // Fallback: usar channel_idx si la columna no existe
-        const devIndex = dbCh.hart_device_index !== undefined
-          ? Number(dbCh.hart_device_index)
-          : i;
-
-        // hart_device_address = direccion HART fisica en el bus (informativo)
-        const devAddr = dbCh.hart_device_address !== undefined
-          ? Number(dbCh.hart_device_address)
-          : devIndex + 1;
+        const devIndex = dbCh.hart_device_index !== undefined ? Number(dbCh.hart_device_index) : i;
 
         return {
-          channel_idx:          i,
-          v_name:               dbCh.v_name || `HART_CH${i}`,
-          desc:                 dbCh.description || `Instrumento HART ${i+1}`,
-          hart_device_index:    devIndex,
-          hart_device_address:  devAddr,
-          modbus_addr:          1300 + devIndex * 10,   // calculado, solo lectura
-          enabled:              dbCh.enabled !== undefined ? !!dbCh.enabled : (i === 0),
-          connected:            liveCh.connected || false,
-          error:                liveCh.error || null,
-          pv_current:           liveCh.pv_current || 0.0,
-          pv1:                  liveCh.pv1 || { value: 0.0, unit: '-' },
-          pv2:                  liveCh.pv2 || { value: 0.0, unit: '-' },
-          pv3:                  liveCh.pv3 || { value: 0.0, unit: '-' },
-          pv4:                  liveCh.pv4 || { value: 0.0, unit: '-' },
+          channel_idx:       i,
+          v_name:            dbCh.v_name || `HART_CH${i}`,
+          desc:              dbCh.description || `Instrumento HART ${i + 1}`,
+          instrument_type:   dbCh.instrument_type || 'NONE',
+          hart_device_index: devIndex,
+          enabled:           dbCh.enabled !== undefined ? !!dbCh.enabled : (i === 0),
+          connected:         liveCh.connected || false,
+          error:             liveCh.error || null,
+          pv1:               liveCh.pv1 || { value: 0.0, unit: '-' },
+          pv2:               liveCh.pv2 || { value: 0.0, unit: '-' },
+          pv3:               liveCh.pv3 || { value: 0.0, unit: '-' },
+          pv4:               liveCh.pv4 || { value: 0.0, unit: '-' },
         };
       });
     });
 
-    const fmtCurrent = v => v !== null && v !== undefined ? parseFloat(v).toFixed(4) + ' mA' : '--';
-    const fmtValue = pv => pv && pv.value !== undefined && pv.value !== null ? parseFloat(pv.value).toFixed(2) + ' ' + (pv.unit || '') : '--';
+    const isGatewayConnected = computed(() => liveChannels.value.some(ch => ch.connected || ch.error === 'Desc.'));
+    const fmtValue = pv => pv && pv.value !== undefined && pv.value !== null
+      ? parseFloat(pv.value).toFixed(2) + ' ' + (pv.unit || '')
+      : '—';
 
     let liveTimer;
-    onMounted(() => {
-      loadConfig();
-      loadDbConfig();
-      loadLive();
-      liveTimer = setInterval(loadLive, 5000);
-    });
-    onUnmounted(() => {
-      clearInterval(liveTimer);
-    });
+    onMounted(() => { loadConfig(); loadDbConfig(); loadLive(); liveTimer = setInterval(loadLive, 5000); });
+    onUnmounted(() => { clearInterval(liveTimer); });
 
     return {
       liveChannels, connForm, dbConfig, editingCh, editForms, toast,
       loadLive, saveConnection, startEdit, saveCh, mergedHartChannels,
-      fmtCurrent, fmtValue, rebooting, rebootGateway
+      fmtValue, rebooting, rebootGateway, isGatewayConnected, ROLES
     };
   }
 };
+
 
 // ── Mount ────────────────────────────────────────────────────
 const app = createApp(App);

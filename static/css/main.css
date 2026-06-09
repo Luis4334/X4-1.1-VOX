@@ -541,6 +541,28 @@ html, body {
   min-width: 70px;
   z-index: 11;
 }
+/* ── Tag WC debajo de LI-01 ── */
+.wc-tag {
+  position: absolute;
+  left:   18.5%;
+  top:    55%;
+  min-width: 70px;
+  z-index: 11;
+}
+
+/* ── Tags Flotantes Extra (Wedge / Laminar A) ── */
+.laminar-a-tag {
+  position: absolute;
+  left: 20%;
+  top:  12%;
+  z-index: 10;
+}
+.wedge-tag {
+  position: absolute;
+  left: 14%;
+  top:  68%;
+  z-index: 10;
+}
 .li-bar-wrap {
   margin-top: 4px;
   width: 100%;

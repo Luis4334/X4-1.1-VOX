@@ -158,15 +158,19 @@ def _hart_background_poller():
                 # slave_id = slave del GATEWAY (el mismo para TODOS los canales)
                 gateway_slave = max(1, int(HART_CONFIG.get('slave_id', 1)))
 
+                # instrument_type = rol fijo del slot (determina inyeccion en V)
+                instrument_type = ch.get('instrument_type', 'NONE') or 'NONE'
+
                 cfg = {
                     'mode':                HART_CONFIG.get('mode', 'tcp'),
                     'ip':                  HART_CONFIG.get('ip', '192.168.255.1'),
                     'port':                int(HART_CONFIG.get('port', 502)),
                     'com_port':            HART_CONFIG.get('com_port', 'COM3'),
                     'baudrate':            int(HART_CONFIG.get('baudrate', 9600)),
-                    'slave_id':            gateway_slave,   # FIJO (slave del gateway)
-                    'hart_device_index':   dev_index,       # N del HG Tool -> direccion
+                    'slave_id':            gateway_slave,
+                    'hart_device_index':   dev_index,
                     'hart_device_address': ch.get('hart_device_address', dev_index + 1),
+                    'instrument_type':     instrument_type,   # Rol fijo: LAMINAR_A, WEDGE_LIQ...
                 }
 
                 hart_logger.debug(
@@ -347,22 +351,35 @@ def websocket_updater():
         try:
             # ── Leer datos de proceso desde V (solo lectura) ──
             process_data = {
-                "FI_03":       round(V.r_Q_gas,      3),
-                "PI_01":       round(V.r_P_Gas,       2),
-                "TI_01":       round(V.r_T_Oil_C,     2),
-                "LI_01":       round(V.r_LIT_001,     2),
-                "PDI_01":      round(V.r_PDT_01,      2),
-                "PDI_02_dp":   round(V.r_PDT_02,      2),
-                "PDI_03":      round(V.r_PDT_03,      2),
-                "TI_02":       round(V.r_T_Gas,       2),
-                "GAS_01":      round(V.r_Q_GAT,       2),
-                "VI_01":       round(V.r_WC,           3),
-                "Q_Crudo":     round(V.r_Q_Crudo,     3),
-                "Q_W":         round(V.r_Q_W,          3),
-                "Q_gas_STD":   round(V.r_Q_gas_STD,   3),
-                "GOR":         round(V.r_GOR,          2),
-                "WC_sc":       round(V.r_WC_sc,        3),
-                "GVF":         round(V.r_GVF,          3),
+                "FIT_03":      round(V.r_Q_gas_STD,           3),   # FIT-03 Caudal Gas STD
+                "PIT_01":      round(V.r_P_Gas,               2),   # PIT-01 Presión Gas
+                "TIT_01":      round(V.r_T_Gas,               2),   # TIT-01 Temperatura Gas
+                "LI_01":       round(V.r_LIT_001,             2),   # LIT-01 Nivel Separador
+                "PDI_01":      round(V.r_PDT_01,              2),   # Laminar A
+                "PDI_02_dp":   round(V.r_PDT_02,              2),   # Wedge DP
+                "PDI_03":      round(V.r_PDT_03,              2),   # Laminar B
+                "P_Oil":       round(V.r_P_Oil,               2),   # Wedge Presión Aceite
+                "TIT_02":      round(V.r_T_Oil_C,             2),   # TIT-02 Temperatura Crudo °C
+                "TIT_02_F":    round(V.r_T_Oil_F,             2),   # TIT-02 Temperatura Crudo °F
+                "GAS_01":      round(V.r_GVF,                 3),   # %GAS Fracción de Vacíos
+                "VIT_01":      round(V.r_v_oil_medida,        3),   # VIT-01 Viscosidad medida
+                "WC":          round(V.r_WC,                  2),   # WC Corte de Agua
+                # ── Tablas inferiores ─────────────────────────────────
+                "Est_Q_Liq":   round(V.r_Qb_Liquido_Estimado, 3),   # Est.Qliq
+                "Est_Q_Crudo": round(V.r_Q_Crudo_Estimado,    3),   # Est.Q.Crudo
+                "Est_Q_Dil":   round(V.r_Qb_Liquido_sc_Estimado, 3),# Est.Q.Diluente (Qb_sc_Est)
+                "Est_Q_Agua":  round(V.r_Q_W_Estimado,        3),   # Est.QAgua
+                "Est_Q_Gas":   round(V.r_Q_gas_T_sc,          3),   # Est.Q.Gas Total STD
+                "Q_Liq":       round(V.r_Q_Liquido,           3),   # Q.Liq
+                "Q_Crudo":     round(V.r_Q_Crudo,             3),   # Q.Crudo
+                "Q_Agua":      round(V.r_T_Oil_F,             2),   # Q.Agua (mapeado a r_T_Oil_F)
+                "Q_Dil":       round(V.r_caudal_dil_BM,       3),   # Q.Diluente
+                # ── Extras ───────────────────────────────────────────
+                "Q_W":         round(V.r_Q_W,                 3),
+                "Q_gas_STD":   round(V.r_Q_gas_STD,           3),
+                "GOR":         round(V.r_GOR,                 2),
+                "WC_sc":       round(V.r_WC_sc,               3),
+                "GVF":         round(V.r_GVF,                 3),
                 "timestamp":   datetime.now().strftime("%H:%M:%S"),
             }
 
@@ -372,7 +389,7 @@ def websocket_updater():
                 "modo":        "Auto" if not V.b_MAN_LC else "Manual",
                 "PV":          round(V.r_LIT_001, 2),
                 "SP":          round(V.r_LEVEL_PID_SP, 2),
-                "CV":          round(V.fb_LEVEL_PID_r_CVEU, 2),
+                "CV":          round(V.fb_PRESS_PID_r_CVEU, 2),
                 "CV_manual":   round(V.r_LEVEL_PID_03_CVOverride, 2),
                 "Kp":          round(V.r_LEVEL_PID_03_KP, 4),
                 "Ki":          round(V.r_LEVEL_PID_03_KI, 4),
@@ -384,7 +401,7 @@ def websocket_updater():
                 "modo":        "Auto" if not V.b_MAN_PC else "Manual",
                 "PV":          round(V.r_P_Gas, 2),
                 "SP":          round(V.r_PRESS_PID_SP, 2),
-                "CV":          round(V.fb_PRESS_PID_r_CVEU, 2),
+                "CV":          round(V.fb_LEVEL_PID_r_CVEU, 2),
                 "CV_manual":   round(V.r_PRESS_PID_03_CVOverride, 2),
                 "Kp":          round(V.r_PRESS_PID_03_KP, 4),
                 "Ki":          round(V.r_PRESS_PID_03_KI, 4),
@@ -1001,8 +1018,8 @@ def save_hart_channel_config():
     db_exec(
         """INSERT INTO hart_channel_config
              (channel_idx, v_name, description,
-              hart_device_index, hart_device_address, slave_id, enabled)
-           VALUES (%s,%s,%s,%s,%s,%s,%s)
+              hart_device_index, hart_device_address, slave_id, enabled, instrument_type)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
            ON DUPLICATE KEY UPDATE
              description=%s,
              hart_device_index=%s, hart_device_address=%s, slave_id=%s,
@@ -1015,7 +1032,8 @@ def save_hart_channel_config():
             hart_addr,
             hart_addr,
             bool(d.get("enabled", True)),
-            # ON DUPLICATE KEY:
+            d.get("instrument_type", "NONE"),
+            # ON DUPLICATE KEY: solo actualiza descripcion, device, enabled (NO instrument_type)
             d["description"],
             dev_index,
             hart_addr,
