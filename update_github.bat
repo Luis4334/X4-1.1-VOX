@@ -1,0 +1,9 @@
+@echo off
+echo Adding changes...
+git add .
+echo Committing changes...
+git commit -m "Refactor: Updated PruebaProgresoPage with 3-chart layout, improved spacing and larger fonts"
+echo Pushing to GitHub...
+git push origin main
+echo Done!
+pause

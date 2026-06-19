@@ -1,0 +1,10 @@
+Flask==2.3.3
+Flask-SocketIO==5.3.6
+Flask-CORS==4.0.0
+mysql-connector-python==8.1.0
+python-engineio==4.7.1
+python-socketio==5.9.0
+eventlet==0.33.3
+
+# DAQ / Modbus (para comunicacion-modbus.py)
+pymodbus==3.6.8          # Modbus TCP y RTU (descomentar en comunicacion-modbus.py)
