@@ -13,10 +13,13 @@ logger = logging.getLogger("orinoco.fase6.pid")
 
 
 def p07_pid():
-    """Migrado de P07_PID_.LSF. PID de nivel (LCV) y presión/gas (PCV)."""
-    if not (V.b_P07_ejec_prog and not V.b_P07_ejec_prog_ant):
-        return
-
+    """Migrado de P07_PID_.LSF. PID de nivel (LCV) y presión/gas (PCV).
+    Se ejecuta en CADA ciclo. Los lazos se habilitan/deshabilitan desde la HMI
+    mediante V.b_DESHABILITA_PID (botón 'Habilit. Lazos' en Inicio/Proceso).
+    b_ProgOverrideReq dentro de cada FB_PID aplica el override cuando está deshabilitado.
+    """
+    # El PID siempre ejecuta — el override interno (b_ProgOverrideReq) detiene
+    # la acción de control cuando los lazos están deshabilitados.
     V.t_P07_duracion.reset()
 
     # Selector PV: LIT_001 vs DP_Simeflum según switch de posición

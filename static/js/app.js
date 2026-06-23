@@ -32,9 +32,13 @@ const App = {
       <div class="flex items-center gap-4">
         <div class="hdr-clock">{{ clock }}</div>
         <div class="w-2.5 h-2.5 rounded-full transition-all duration-300"
-             :style="connected
-               ? 'background:var(--accent-green);box-shadow:0 0 6px var(--accent-green)'
-               : 'background:var(--accent-red);box-shadow:0 0 6px var(--accent-red)'"></div>
+             :style="!connected
+               ? 'background:#ef4444;box-shadow:0 0 6px #ef4444'
+               : db_ok
+                 ? 'background:var(--accent-green);box-shadow:0 0 6px var(--accent-green)'
+                 : 'background:#f97316;box-shadow:0 0 6px #f97316'"
+             :title="!connected ? 'Sin conexión WebSocket' : db_ok ? 'BD MySQL conectada' : 'WebSocket OK — BD MySQL desconectada'"
+        ></div>
       </div>
       <div class="hdr-title">
         
@@ -170,6 +174,7 @@ const App = {
   setup() {
     const page = ref('proceso');
     const connected = ref(false);
+    const db_ok = ref(false);
     const lazos = ref(true);
     const toasts = ref([]);
     const alarmas = ref([]);
@@ -251,6 +256,7 @@ const App = {
         Object.assign(pid_p, d.pid_presion);
         Object.assign(pid_n, d.pid_nivel);
         lazos.value = d.lazos_habilitados;
+        db_ok.value  = d.db_ok ?? false;
       });
       socket.on('pid_updated', d => { Object.assign(d.instrumento === 'PIC-01' ? pid_p : pid_n, d); });
       socket.on('pid_config', d => {
@@ -261,7 +267,7 @@ const App = {
     onUnmounted(() => { clearInterval(clockTimer); if (socket) socket.disconnect(); });
 
     return {
-      page, connected, lazos, toasts, alarmas, clock, proc, pid_p, pid_n, modalPid,
+      page, connected, db_ok, lazos, toasts, alarmas, clock, proc, pid_p, pid_n, modalPid,
       sidebarOpen, navItems, openPid, savePid, toggleLazos, loadAlarmas, showToast
     };
   }
@@ -579,13 +585,13 @@ const DataCrudaPage = {
     let chartInstance = null;
 
     const variables = reactive([
-      { key: 'r_Q_gas_STD', label: 'r_Q_gas_STD Caudal Gas', unit: 'MSCFD', color: '#5ac8d4', active: true, decimals: 2, min: 0, max: 10 },
-      { key: 'r_P_Gas', label: 'r_P_Gas Presión', unit: 'PSIG', color: '#e6a817', active: true, decimals: 1, min: 0, max: 500 },
-      { key: 'r_T_Oil_C', label: 'r_T_Oil_C Temperatura', unit: '°C', color: '#e67e22', active: true, decimals: 2, min: 0, max: 100 },
-      { key: 'r_LIT_001', label: 'r_LIT_001 Nivel', unit: '%', color: '#27a766', active: true, decimals: 1, min: 0, max: 100 },
-      { key: 'r_T_Gas', label: 'r_T_Gas Temp. Fondo', unit: '°C', color: '#c0392b', active: false, decimals: 1, min: 0, max: 100 },
-      { key: 'r_GVoidF', label: 'r_GVoidF Fracción Gas', unit: '%', color: '#9b59b6', active: false, decimals: 1, min: 0, max: 100 },
-      { key: 'r_v_oil_medida', label: 'r_v_oil_medida Viscosidad', unit: 'CP', color: '#3498db', active: false, decimals: 1, min: 0, max: 200 },
+      { key: 'r_Q_gas_STD',    label: 'r_Q_gas_STD',    unit: 'MSCFD', color: '#5ac8d4', active: true,  decimals: 2, min: 0, max: 10 },
+      { key: 'r_P_Gas',        label: 'r_P_Gas',         unit: 'PSIG',  color: '#e6a817', active: true,  decimals: 1, min: 0, max: 500 },
+      { key: 'r_T_Oil_C',      label: 'r_T_Oil_C',       unit: '°C',    color: '#e67e22', active: true,  decimals: 2, min: 0, max: 100 },
+      { key: 'r_LIT_001',      label: 'r_LIT_001',       unit: '%',     color: '#27a766', active: true,  decimals: 1, min: 0, max: 100 },
+      { key: 'r_T_Gas',        label: 'r_T_Gas',         unit: '°C',    color: '#c0392b', active: false, decimals: 1, min: 0, max: 100 },
+      { key: 'r_GVoidF',       label: 'r_GVoidF',        unit: '%',     color: '#9b59b6', active: false, decimals: 1, min: 0, max: 100 },
+      { key: 'r_v_oil_medida', label: 'r_v_oil_medida',  unit: 'CP',    color: '#3498db', active: false, decimals: 1, min: 0, max: 200 },
     ]);
 
     // Historia de cada variable
@@ -885,7 +891,28 @@ const RangosPage = {
         </tbody>
       </table>
     </div>
+
+    <!-- Modal: advertencia al activar Modo Manual -->
+    <div v-if="modalManual.show" class="modal-overlay" @click.self="modalManual.show=false">
+      <div class="modal-box" style="max-width:420px">
+        <div class="modal-title" style="color:#f97316">&#9888;&#65039; Activar Modo Manual</div>
+        <div class="modal-body">
+          Estas a punto de forzar el instrumento
+          <strong style="color:#ffd040">{{ modalManual.instrumento }}</strong> en <strong style="color:#ff6b6b">Modo Manual</strong>.<br><br>
+          <span style="font-size:12px;color:var(--text-secondary)">
+            Antes de continuar asegurate de:<br>
+            &#128225; <b>Config DAQ</b> — Deshabilitar el canal analogico correspondiente.<br>
+            &#9889; <b>Config HART</b> — Pausar el polling de ese instrumento si aplica.
+          </span>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-modal-cancel" @click="modalManual.show=false">Cancelar</button>
+          <button class="btn-modal-confirm" @click="confirmManual">Si, activar Manual</button>
+        </div>
+      </div>
+    </div>
   </div>`,
+
 
   setup(props, { emit }) {
     const { ref, onMounted } = Vue;
@@ -949,9 +976,28 @@ const RangosPage = {
 
     onMounted(cargar);
 
+    // Modal de confirmación para modo Manual
+    const { reactive: _reactive } = Vue;
+    const modalManual = _reactive({ show: false, instrumento: '', _row: null });
+
     function toggleModo(row) {
-      row.modo_manual = row.modo_manual ? 0 : 1;
-      if (!row.modo_manual) row.valor_manual = null;
+      if (row.modo_manual) {
+        // Volver a Automático: sin confirmación
+        row.modo_manual = 0;
+        row.valor_manual = null;
+      } else {
+        // Pasar a Manual: mostrar advertencia
+        modalManual._row = row;
+        modalManual.instrumento = row.instrumento;
+        modalManual.show = true;
+      }
+    }
+
+    function confirmManual() {
+      if (modalManual._row) {
+        modalManual._row.modo_manual = 1;
+      }
+      modalManual.show = false;
     }
 
     async function saveRow(row) {
@@ -969,7 +1015,7 @@ const RangosPage = {
       } catch (e) { emit('toast', '❌ Error al guardar', 'error'); }
     }
 
-    return { localRows, toggleModo, saveRow, fmtLive, liveColor, alarmClass };
+    return { localRows, modalManual, toggleModo, confirmManual, saveRow, fmtLive, liveColor, alarmClass };
   }
 };
 // ═══════════════════════════════════════════════════════════════

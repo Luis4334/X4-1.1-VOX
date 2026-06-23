@@ -416,9 +416,10 @@ def websocket_updater():
                 "pid_presion":  pid_presion_data,
                 "plc":          plc_status,
                 "lazos_habilitados": not V.b_DESHABILITA_PID,
+                "db_ok":        db_pool is not None,
             })
 
-            # ── Guardar histórico en DB cada 5 s (10 × 500 ms) ──
+            # ── Guardar histórico en DB cada 10 s (10 × 1000 ms ciclo) ──
             loop_count += 1
             if loop_count >= 10:
                 loop_count = 0
