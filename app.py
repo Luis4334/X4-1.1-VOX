@@ -37,8 +37,8 @@ if _MIGRATION_DIR not in sys.path:
 # Importar usando notación de paquete para satisfacer el linter.
 # python_migration/ ya contiene __init__.py, por lo que es un
 # paquete Python válido reconocido por el analizador estático.
-from python_migration.global_vars import V                          # Memoria compartida única
-from python_migration.scan_engine import ScanEngine, PHASE_REGISTRY # Motor de ciclos + fases
+from global_vars import V                          # Memoria compartida única
+from scan_engine import ScanEngine, PHASE_REGISTRY # Motor de ciclos + fases
 
 # ─────────────────────────────────────────────────────────────
 # Logging
@@ -110,7 +110,7 @@ def _hart_background_poller():
       Ejemplos:
         HART Device 0 -> addr 1300 | HART Device 2 -> addr 1320
     """
-    from python_migration.comunicacion_hart import leer_instrumento_hart
+    from comunicacion_hart import leer_instrumento_hart
     hart_logger = logging.getLogger("orinoco.hart.poller")
     hart_logger.info("Poller HART iniciado (intervalo %.1fs)" % _HART_POLL_INTERVAL)
 
@@ -211,16 +211,26 @@ except Exception as _e:
 
 
 def get_conn():
+    global global_db_ok
     if db_pool:
         try:
-            return db_pool.get_connection()
+            conn = db_pool.get_connection()
+            global_db_ok = True
+            return conn
         except Exception:
             pass
-    return mysql.connector.connect(**DB_CONFIG)
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        global_db_ok = True
+        return conn
+    except Exception as e:
+        global_db_ok = False
+        raise e
 
 
 def db_exec(sql, params=None, fetch=True):
     """Ejecuta SQL; retorna filas si fetch=True, lastrowid si fetch=False."""
+    global global_db_ok
     conn = cur = None
     try:
         conn = get_conn()
@@ -229,9 +239,11 @@ def db_exec(sql, params=None, fetch=True):
         if fetch:
             return cur.fetchall()
         conn.commit()
+        global_db_ok = True
         return cur.lastrowid
     except Exception as e:
         logger.debug(f"DB error: {e}")
+        global_db_ok = False
         if conn and not fetch:
             try: conn.rollback()
             except Exception: pass
@@ -239,6 +251,20 @@ def db_exec(sql, params=None, fetch=True):
     finally:
         if cur:  cur.close()
         if conn: conn.close()
+
+# Estado de BD global para el frontend
+global_db_ok = False
+
+def ping_db():
+    global global_db_ok
+    try:
+        conn = get_conn()
+        conn.ping(reconnect=True, attempts=1, delay=0)
+        global_db_ok = True
+        conn.close()
+    except Exception:
+        global_db_ok = False
+
 
 
 # ─────────────────────────────────────────────────────────────
@@ -257,7 +283,7 @@ plc_engine.register_phases(PHASE_REGISTRY)
 # ─────────────────────────────────────────────────────────────
 def _load_daq_connection_from_db():
     """Lee la tabla daq_connection_config y aplica los parámetros al módulo modbus_daq."""
-    import python_migration.modbus_daq as _mdaq
+    import modbus_daq as _mdaq
     rows = db_exec("SELECT * FROM daq_connection_config WHERE id=1")
     if not rows:
         logger.info("🔌 DAQ: usando parámetros por defecto (tabla vacía)")
@@ -294,7 +320,7 @@ def _load_daq_channels_from_db():
                 ))
         
         if new_map:
-            import python_migration.fase2_entradas as _f2
+            import fase2_entradas as _f2
             
             # Actualizar en el módulo importado por Flask
             _f2._INPUT_MAP = new_map
@@ -387,7 +413,7 @@ def websocket_updater():
                 "modo":        "Auto" if not V.b_MAN_LC else "Manual",
                 "PV":          round(V.r_LIT_001, 2),
                 "SP":          round(V.r_LEVEL_PID_SP, 2),
-                "CV":          round(V.fb_PRESS_PID_r_CVEU, 2),
+                "CV":          round(V.fb_LEVEL_PID_r_CVEU, 2),   # LCV-01: r_CVEU del PID de Nivel
                 "CV_manual":   round(V.r_LEVEL_PID_03_CVOverride, 2),
                 "Kp":          round(V.r_LEVEL_PID_03_KP, 4),
                 "Ki":          round(V.r_LEVEL_PID_03_KI, 4),
@@ -399,7 +425,7 @@ def websocket_updater():
                 "modo":        "Auto" if not V.b_MAN_PC else "Manual",
                 "PV":          round(V.r_P_Gas, 2),
                 "SP":          round(V.r_PRESS_PID_SP, 2),
-                "CV":          round(V.fb_LEVEL_PID_r_CVEU, 2),
+                "CV":          round(V.fb_PRESS_PID_r_CVEU, 2),   # PCV-01: r_CVEU del PID de Presion
                 "CV_manual":   round(V.r_PRESS_PID_03_CVOverride, 2),
                 "Kp":          round(V.r_PRESS_PID_03_KP, 4),
                 "Ki":          round(V.r_PRESS_PID_03_KI, 4),
@@ -409,6 +435,10 @@ def websocket_updater():
             # ── Estado del Motor PLC ──
             plc_status = plc_engine.get_status()
 
+            # ── Check real-time DB status cada ~2 segundos (4 loops de 500ms) ──
+            if loop_count % 4 == 0:
+                ping_db()
+
             # ── Emitir todo al frontend vía SocketIO ──
             socketio.emit("process_data", {
                 "process":      process_data,
@@ -416,7 +446,7 @@ def websocket_updater():
                 "pid_presion":  pid_presion_data,
                 "plc":          plc_status,
                 "lazos_habilitados": not V.b_DESHABILITA_PID,
-                "db_ok":        db_pool is not None,
+                "db_ok":        global_db_ok,
             })
 
             # ── Guardar histórico en DB cada 10 s (10 × 1000 ms ciclo) ──
@@ -526,7 +556,9 @@ def post_pid(tag):
         if "modo" in d:
             V.b_MAN_LC = (d["modo"] == "Manual")
         if "SP"       in d: V.r_LEVEL_PID_SP              = float(d["SP"])
-        if "CV_manual" in d: V.r_LEVEL_PID_03_CVOverride  = float(d["CV_manual"])
+        if "CV_manual" in d: 
+            V.r_LEVEL_PID_03_CVOverride = float(d["CV_manual"])
+            V.r_LEVEL_PID_03_CVOper     = float(d["CV_manual"])
         if "Kp"       in d: V.r_LEVEL_PID_03_KP           = float(d["Kp"])
         if "Ki"       in d: V.r_LEVEL_PID_03_KI           = float(d["Ki"])
         if "Kd"       in d: V.r_LEVEL_PID_03_KD           = float(d["Kd"])
@@ -545,7 +577,9 @@ def post_pid(tag):
         if "modo" in d:
             V.b_MAN_PC = (d["modo"] == "Manual")
         if "SP"       in d: V.r_PRESS_PID_SP              = float(d["SP"])
-        if "CV_manual" in d: V.r_PRESS_PID_03_CVOverride  = float(d["CV_manual"])
+        if "CV_manual" in d: 
+            V.r_PRESS_PID_03_CVOverride = float(d["CV_manual"])
+            V.r_PRESS_PID_03_CVOper     = float(d["CV_manual"])
         if "Kp"       in d: V.r_PRESS_PID_03_KP           = float(d["Kp"])
         if "Ki"       in d: V.r_PRESS_PID_03_KI           = float(d["Ki"])
         if "Kd"       in d: V.r_PRESS_PID_03_KD           = float(d["Kd"])
@@ -564,12 +598,31 @@ def post_pid(tag):
 
 @app.route("/api/plc/lazos", methods=["POST"])
 def toggle_lazos():
-    """Habilita/deshabilita los lazos PID del SoftPLC vía V.b_DESHABILITA_PID."""
-    d = request.get_json() or {}
+    """Habilita/deshabilita los lazos PID del SoftPLC.
+    
+    La Fase 4 (p05_main) usa lógica de latch con pushbuttons:
+      - b_PB_HABILITA_PID = True  → habilita los lazos (latch set)
+      - b_PB_DESHABILITA_PID = True → deshabilita los lazos (latch reset)
+    Escribir directamente a b_DESHABILITA_PID no funciona porque
+    la Fase 4 lo sobrescribe cada ciclo.
+    """
+    d = request.get_json(silent=True) or {}
+    
     if "habilitar" in d:
-        V.b_DESHABILITA_PID = not bool(d["habilitar"])
+        quiere_habilitar = bool(d["habilitar"])
     else:
-        V.b_DESHABILITA_PID = not V.b_DESHABILITA_PID
+        # Toggle: si están deshabilitados → habilitar, si habilitados → deshabilitar
+        quiere_habilitar = V.b_DESHABILITA_PID  # True = están deshabilitados → quiere habilitar
+    
+    if quiere_habilitar:
+        V.b_PB_HABILITA_PID = True       # Pulso: la Fase 4 lo procesa y lo limpia
+        V.b_DESHABILITA_PID = False       # Efecto inmediato para la respuesta
+        logger.info("🟢 Lazos PID: pulso HABILITAR enviado")
+    else:
+        V.b_PB_DESHABILITA_PID = True     # Pulso: la Fase 4 lo procesa y lo limpia
+        V.b_DESHABILITA_PID = True        # Efecto inmediato para la respuesta
+        logger.info("🔴 Lazos PID: pulso DESHABILITAR enviado")
+    
     return jsonify({"lazos_habilitados": not V.b_DESHABILITA_PID})
 
 
@@ -585,6 +638,121 @@ def toggle_simulacion():
     d = request.get_json() or {}
     V.b_simular_ai = bool(d.get("simular", not V.b_simular_ai))
     return jsonify({"b_simular_ai": V.b_simular_ai})
+
+
+# ─────────────────────────────────────────────────────────────
+# Endpoints de Prueba / Diagnóstico PID
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/test/pid_inject", methods=["POST"])
+def pid_test_inject():
+    """Inyecta valores de PV y configuración de PID directamente en V para pruebas.
+    Body JSON esperado:
+      { "nivel": 80.0, "presion": 11.9,
+        "sp_nivel": 50.0, "sp_presion": 70.0,
+        "kp_nivel": 1.0,  "ki_nivel": 0.1,
+        "kp_presion": 1.0, "ki_presion": 0.1,
+        "habilitar_lazos": true }
+    Todos los campos son opcionales.
+    """
+    d = request.get_json() or {}
+    changes = {}
+
+    # Inyectar PV de nivel
+    if "nivel" in d:
+        V.r_LIT_001 = float(d["nivel"])
+        changes["r_LIT_001"] = V.r_LIT_001
+
+    # Inyectar PV de presión
+    if "presion" in d:
+        V.r_P_Gas = float(d["presion"])
+        changes["r_P_Gas"] = V.r_P_Gas
+
+    # Setpoints
+    if "sp_nivel" in d:
+        V.r_LEVEL_PID_SP = float(d["sp_nivel"])
+        changes["r_LEVEL_PID_SP"] = V.r_LEVEL_PID_SP
+    if "sp_presion" in d:
+        V.r_PRESS_PID_SP = float(d["sp_presion"])
+        changes["r_PRESS_PID_SP"] = V.r_PRESS_PID_SP
+
+    # Ganancias PID nivel
+    if "kp_nivel" in d:
+        V.r_LEVEL_PID_03_KP = float(d["kp_nivel"])
+        changes["r_LEVEL_PID_03_KP"] = V.r_LEVEL_PID_03_KP
+    if "ki_nivel" in d:
+        V.r_LEVEL_PID_03_KI = float(d["ki_nivel"])
+        changes["r_LEVEL_PID_03_KI"] = V.r_LEVEL_PID_03_KI
+
+    # Ganancias PID presión
+    if "kp_presion" in d:
+        V.r_PRESS_PID_03_KP = float(d["kp_presion"])
+        changes["r_PRESS_PID_03_KP"] = V.r_PRESS_PID_03_KP
+    if "ki_presion" in d:
+        V.r_PRESS_PID_03_KI = float(d["ki_presion"])
+        changes["r_PRESS_PID_03_KI"] = V.r_PRESS_PID_03_KI
+
+    # Habilitar lazos (usar pushbutton para que fase4 no lo sobrescriba)
+    if "habilitar_lazos" in d:
+        if bool(d["habilitar_lazos"]):
+            V.b_PB_HABILITA_PID = True
+            V.b_DESHABILITA_PID = False
+        else:
+            V.b_PB_DESHABILITA_PID = True
+            V.b_DESHABILITA_PID = True
+        changes["lazos_habilitados"] = not V.b_DESHABILITA_PID
+
+    # Modo Auto del PID (False = Auto, True = Manual)
+    if "nivel_auto" in d:
+        V.b_MAN_LC = not bool(d["nivel_auto"])
+        changes["b_MAN_LC"] = V.b_MAN_LC
+    if "presion_auto" in d:
+        V.b_MAN_PC = not bool(d["presion_auto"])
+        changes["b_MAN_PC"] = V.b_MAN_PC
+
+    return jsonify({"ok": True, "changes": changes})
+
+
+@app.route("/api/test/pid_status", methods=["GET"])
+def pid_test_status():
+    """Devuelve el estado completo del PID para monitoreo durante pruebas."""
+    import time as _time
+    now = _time.monotonic()
+    return jsonify({
+        # Nivel (LIC-01 / LCV-01)
+        "nivel_PV":    round(V.r_LIT_001, 2),
+        "nivel_SP":    round(V.r_LEVEL_PID_SP, 2),
+        "nivel_CV":    round(getattr(V, "fb_LEVEL_PID_r_CVEU", 0.0), 2),
+        "nivel_CV_internal": round(V.fb_LEVEL_PID.r_CVEU, 4),
+        "nivel_CVOper": round(V.r_LEVEL_PID_03_CVOper, 2),
+        "nivel_CVOverride": round(V.r_LEVEL_PID_03_CVOverride, 2),
+        "nivel_FI": round(V.r_LEVEL_PID_03_Factor_I, 4),
+        "nivel_FI_out": round(V.fb_LEVEL_PID.r_FI_out, 4),
+        "nivel_last_exec_ago": round(now - V.fb_LEVEL_PID._last_exec, 2),
+        "nivel_modo":  "Manual" if V.b_MAN_LC else "Auto",
+        "nivel_Kp":    round(V.r_LEVEL_PID_03_KP, 4),
+        "nivel_Ki":    round(V.r_LEVEL_PID_03_KI, 4),
+        "nivel_Kd":    round(V.r_LEVEL_PID_03_KD, 4),
+        # Presión (PIC-01 / PCV-01)
+        "presion_PV":  round(V.r_P_Gas, 2),
+        "presion_SP":  round(V.r_PRESS_PID_SP, 2),
+        "presion_CV":  round(getattr(V, "fb_PRESS_PID_r_CVEU", 0.0), 2),
+        "presion_CV_internal": round(V.fb_PRESS_PID.r_CVEU, 4),
+        "presion_CVOper": round(V.r_PRESS_PID_03_CVOper, 2),
+        "presion_CVOverride": round(V.r_PRESS_PID_03_CVOverride, 2),
+        "presion_FI_out": round(V.fb_PRESS_PID.r_FI_out, 4),
+        "presion_last_exec_ago": round(now - V.fb_PRESS_PID._last_exec, 2),
+        "presion_modo":"Manual" if V.b_MAN_PC else "Auto",
+        "presion_Kp":  round(V.r_PRESS_PID_03_KP, 4),
+        "presion_Ki":  round(V.r_PRESS_PID_03_KI, 4),
+        "presion_Kd":  round(V.r_PRESS_PID_03_KD, 4),
+        # Estado general
+        "lazos_habilitados": not V.b_DESHABILITA_PID,
+        "b_DESHABILITA_PID": V.b_DESHABILITA_PID,
+        "b_PB_HABILITA_PID": V.b_PB_HABILITA_PID,
+        "scan_ms":     plc_engine.scan_time_ms,
+    })
+
 
 
 # ─────────────────────────────────────────────────────────────
@@ -791,8 +959,8 @@ def daq_live():
     se reporta connected=False aunque el cliente Modbus no haya fallado.
     """
     import time as _time
-    import python_migration.modbus_daq as _mdaq
-    import python_migration.fase2_entradas as _f2
+    import modbus_daq as _mdaq
+    import fase2_entradas as _f2
 
     # IMPORTANTE: leer el snapshot desde el módulo del PLC directamente.
     # 'V' en app.py es 'python_migration.global_vars.V' mientras que
@@ -976,7 +1144,7 @@ def post_daq_reboot():
     try:
         import sys
         mdaq_instances = []
-        import python_migration.modbus_daq as _mdaq1
+        import modbus_daq as _mdaq1
         mdaq_instances.append(_mdaq1)
         
         _mdaq2 = sys.modules.get('modbus_daq')
@@ -1038,7 +1206,7 @@ def post_hart_reboot():
 
     # 1. Forzar desconexión local del poller para que no intente usar el socket mientras se reinicia
     try:
-        from python_migration.comunicacion_hart import force_disconnect
+        from comunicacion_hart import force_disconnect
         force_disconnect()
     except Exception as e:
         logger.error(f"Error forzando desconexión HART: {e}")
@@ -1213,7 +1381,14 @@ def ws_update_pid(data):
 
 @socketio.on("toggle_lazos")
 def ws_toggle_lazos(_data=None):
-    V.b_DESHABILITA_PID = not V.b_DESHABILITA_PID
+    if V.b_DESHABILITA_PID:
+        # Quiere habilitar
+        V.b_PB_HABILITA_PID = True
+        V.b_DESHABILITA_PID = False
+    else:
+        # Quiere deshabilitar
+        V.b_PB_DESHABILITA_PID = True
+        V.b_DESHABILITA_PID = True
     emit("lazos_status", {"lazos_habilitados": not V.b_DESHABILITA_PID}, broadcast=True)
 
 

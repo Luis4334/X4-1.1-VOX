@@ -11,6 +11,7 @@ from global_vars import V
 
 logger = logging.getLogger("orinoco.fase6.pid")
 
+_log_counter = 0
 
 def p07_pid():
     """Migrado de P07_PID_.LSF. PID de nivel (LCV) y presión/gas (PCV).
@@ -18,8 +19,7 @@ def p07_pid():
     mediante V.b_DESHABILITA_PID (botón 'Habilit. Lazos' en Inicio/Proceso).
     b_ProgOverrideReq dentro de cada FB_PID aplica el override cuando está deshabilitado.
     """
-    # El PID siempre ejecuta — el override interno (b_ProgOverrideReq) detiene
-    # la acción de control cuando los lazos están deshabilitados.
+    global _log_counter
     V.t_P07_duracion.reset()
 
     # Selector PV: LIT_001 vs DP_Simeflum según switch de posición
@@ -32,7 +32,11 @@ def p07_pid():
     # Acción de control PID gas (inversa cuando es de presión)
     V.b_PRESS_PID_CA = not V.b_Control_PID_Gas
 
-    # PID Nivel → válvula de líquido (LCV-03)
+    # ── Guardar CV previo para detectar si ejecutó ──
+    cv_nivel_antes = V.fb_LEVEL_PID.r_CVEU
+    cv_presion_antes = V.fb_PRESS_PID.r_CVEU
+
+    # PID Nivel → válvula de líquido (LCV-01)
     V.fb_BNOT_05.execute(V.b_MAN_LC)
     V.fb_LEVEL_PID.execute(
         r_PV              = pv_nivel,
@@ -57,7 +61,7 @@ def p07_pid():
     )
     V.r_Local_2_O_Ch0Data = V.fb_SCL_LCV_03.r_Out
 
-    # PID Presión → válvula de gas (PCV-03)
+    # PID Presión → válvula de gas (PCV-01)
     V.fb_BNOT_06.execute(V.b_MAN_PC)
     V.fb_PRESS_PID.execute(
         r_PV              = V.r_PRESS_PID_PV,
@@ -92,4 +96,22 @@ def p07_pid():
     if not V.b_MAN_PC:
         V.r_PRESS_PID_03_CVOper = V.fb_PRESS_PID_r_CVEU
 
+    # ── LOG diagnóstico cada 5 ciclos ──
+    _log_counter += 1
+    if _log_counter % 5 == 0:
+        nivel_modo = "OVERRIDE" if V.b_DESHABILITA_PID else ("AUTO" if not V.b_MAN_LC else "MANUAL")
+        press_modo = "OVERRIDE" if V.b_DESHABILITA_PID else ("AUTO" if not V.b_MAN_PC else "MANUAL")
+        ejecuto_nivel = "SÍ" if V.fb_LEVEL_PID.r_CVEU != cv_nivel_antes else "NO"
+        ejecuto_press = "SÍ" if V.fb_PRESS_PID.r_CVEU != cv_presion_antes else "NO"
+        logger.info(
+            f"PID-DIAG | "
+            f"NIVEL[{nivel_modo}] PV={pv_nivel:.1f} SP={V.r_LEVEL_PID_SP:.1f} "
+            f"CV={V.fb_LEVEL_PID_r_CVEU:.2f}% CVOper={V.r_LEVEL_PID_03_CVOper:.1f} "
+            f"CVOver={V.r_LEVEL_PID_03_CVOverride:.1f} FI={V.r_LEVEL_PID_03_Factor_I:.3f} "
+            f"exec={ejecuto_nivel} | "
+            f"PRESS[{press_modo}] PV={V.r_PRESS_PID_PV:.1f} SP={V.r_PRESS_PID_SP:.1f} "
+            f"CV={V.fb_PRESS_PID_r_CVEU:.2f}% exec={ejecuto_press}"
+        )
+
     V.i_P07_duracion_mSeg = V.t_P07_duracion.read()
+

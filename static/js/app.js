@@ -237,7 +237,7 @@ const App = {
 
     async function toggleLazos() {
       try {
-        const d = await (await fetch('/api/lazos/deshabilitar', { method: 'POST' })).json();
+        const d = await (await fetch('/api/plc/lazos', { method: 'POST' })).json();
         lazos.value = d.lazos_habilitados;
         showToast(lazos.value ? '✅ Lazos habilitados' : '⚠️ Lazos deshabilitados', lazos.value ? 'success' : 'error');
       } catch (e) { }
@@ -585,13 +585,13 @@ const DataCrudaPage = {
     let chartInstance = null;
 
     const variables = reactive([
-      { key: 'r_Q_gas_STD',    label: 'r_Q_gas_STD',    unit: 'MSCFD', color: '#5ac8d4', active: true,  decimals: 2, min: 0, max: 10 },
-      { key: 'r_P_Gas',        label: 'r_P_Gas',         unit: 'PSIG',  color: '#e6a817', active: true,  decimals: 1, min: 0, max: 500 },
-      { key: 'r_T_Oil_C',      label: 'r_T_Oil_C',       unit: '°C',    color: '#e67e22', active: true,  decimals: 2, min: 0, max: 100 },
-      { key: 'r_LIT_001',      label: 'r_LIT_001',       unit: '%',     color: '#27a766', active: true,  decimals: 1, min: 0, max: 100 },
-      { key: 'r_T_Gas',        label: 'r_T_Gas',         unit: '°C',    color: '#c0392b', active: false, decimals: 1, min: 0, max: 100 },
-      { key: 'r_GVoidF',       label: 'r_GVoidF',        unit: '%',     color: '#9b59b6', active: false, decimals: 1, min: 0, max: 100 },
-      { key: 'r_v_oil_medida', label: 'r_v_oil_medida',  unit: 'CP',    color: '#3498db', active: false, decimals: 1, min: 0, max: 200 },
+      { key: 'r_Q_gas_STD',    label: 'FI-03 (Flujo Gas)',    unit: 'MSCFD', color: '#5ac8d4', active: true,  decimals: 2, min: 0, max: 10 },
+      { key: 'r_P_Gas',        label: 'PI-01 (Presión Gas)',  unit: 'PSIG',  color: '#e6a817', active: true,  decimals: 1, min: 0, max: 500 },
+      { key: 'r_T_Oil_C',      label: 'TI-01 (Temp. Mezcla)', unit: '°C',    color: '#e67e22', active: true,  decimals: 2, min: 0, max: 100 },
+      { key: 'r_LIT_001',      label: 'LIT-01 (Nivel)',       unit: '%',     color: '#27a766', active: true,  decimals: 1, min: 0, max: 100 },
+      { key: 'r_T_Gas',        label: 'TI-02 (Temp. Gas)',    unit: '°C',    color: '#c0392b', active: false, decimals: 1, min: 0, max: 100 },
+      { key: 'r_GVoidF',       label: 'GVF-01 (Corte Gas)',   unit: '%',     color: '#9b59b6', active: false, decimals: 1, min: 0, max: 100 },
+      { key: 'r_v_oil_medida', label: 'VI-01 (Viscosidad)',   unit: 'CP',    color: '#3498db', active: false, decimals: 1, min: 0, max: 200 },
     ]);
 
     // Historia de cada variable
@@ -2056,7 +2056,7 @@ const DaqConfigPage = {
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
         <div class="bg-bg-primary rounded-xl p-4 border border-gray-700 flex flex-col gap-2">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-accent-yellow">AO:00 — LCV-03 Válvula Nivel</span>
+            <span class="text-xs font-bold text-accent-yellow">AO:00 — LCV-01 Válvula Nivel</span>
             <span class="text-xs text-gray-500">addr: 20</span>
           </div>
           <div class="text-xs text-gray-400">Variable: <span class="font-mono text-white">fb_LEVEL_PID_r_CVEU</span></div>
@@ -2067,7 +2067,7 @@ const DaqConfigPage = {
         </div>
         <div class="bg-bg-primary rounded-xl p-4 border border-gray-700 flex flex-col gap-2">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-accent-yellow">AO:01 — PCV-03 Válvula Presión</span>
+            <span class="text-xs font-bold text-accent-yellow">AO:01 — PCV-01 Válvula Presión</span>
             <span class="text-xs text-gray-500">addr: 21</span>
           </div>
           <div class="text-xs text-gray-400">Variable: <span class="font-mono text-white">fb_PRESS_PID_r_CVEU</span></div>

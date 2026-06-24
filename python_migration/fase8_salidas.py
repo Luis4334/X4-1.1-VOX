@@ -38,8 +38,8 @@ _SALIDA_SCALE = 100.0   # TODO: Cambia a 327.67 si tu DAQ usa rango 0-32767
 
 _OUTPUT_MAP = [
     # Variable CV del PID → dirección Modbus → descripción
-    ("fb_LEVEL_PID_r_CVEU",  20, _SALIDA_SCALE, 0, 10000, "LCV-03 Válvula Nivel   [0-100%]"),  # TODO addr
-    ("fb_PRESS_PID_r_CVEU",  21, _SALIDA_SCALE, 0, 10000, "PCV-03 Válvula Presión [0-100%]"),  # TODO addr
+    ("fb_LEVEL_PID_r_CVEU",  20, _SALIDA_SCALE, 0, 10000, "LCV-01 Válvula Nivel   [0-100%]"),  # TODO addr
+    ("fb_PRESS_PID_r_CVEU",  21, _SALIDA_SCALE, 0, 10000, "PCV-01 Válvula Presión [0-100%]"),  # TODO addr
 ]
 
 # ─────────────────────────────────────────────────────────────
@@ -116,14 +116,13 @@ def p09_salidas():
     Secuencia:
       1. Actualiza los registros internos V.QD0_x / V.QX0_x (como antes)
       2. Si hay DAQ conectada, escribe físicamente en el hardware
-         — salidas analógicas (válvulas LCV-03, PCV-03)
+         — salidas analógicas (válvulas LCV-01, PCV-01)
          — salidas digitales  (relés, válvulas on/off)
       3. Si la DAQ falla, registra el error en V.b_Error_DAQ pero
          el ciclo PLC sigue corriendo (fail-safe: mantiene último valor)
     """
-    if not (V.b_P09_ejec_prog and not V.b_P09_ejec_prog_ant):
-        return
-
+    # Las salidas se actualizan en CADA ciclo para mantener las válvulas sincronizadas.
+    # (Antes solo se ejecutaba en el flanco de subida de b_P09_ejec_prog — bug corregido)
     V.t_P09_duracion.reset()
 
     # ── 1. Actualizar registros internos (igual que antes) ────────────────
@@ -132,8 +131,8 @@ def p09_salidas():
     V.QX0_1 = V.b_Local_1_O_Data_5   # AUX_RELE de vigilancia
 
     # Salidas analógicas internas (rango 0-32767 del VP-25W6 original)
-    V.QD0_0 = int(V.r_Local_2_O_Ch0Data)   # LCV-03
-    V.QD0_1 = int(V.r_Local_2_O_Ch1Data)   # PCV-03
+    V.QD0_0 = int(V.r_Local_2_O_Ch0Data)   # LCV-01
+    V.QD0_1 = int(V.r_Local_2_O_Ch1Data)   # PCV-01
 
     # ── 2. Escribir en hardware físico vía Modbus RTU ─────────────────────
     client = get_client()
