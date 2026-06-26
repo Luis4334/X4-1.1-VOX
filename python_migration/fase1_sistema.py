@@ -104,6 +104,7 @@ def save_retained_vars():
         # Switches
         'b_Sw_Wedge_Gas', 'b_Sw_Wedge_Gas_2', 'b_SW_DIL_MEDIDO_CALC',
         'b_SEL_LAMINAR', 'b_SEL_T_baja', 'b_habilitar_Loggers',
+        'b_Control_PID_Gas', 'b_PID_POSIC_SW',
     ]
     data = {}
     for key in keys_to_retain:

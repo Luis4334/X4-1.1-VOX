@@ -64,16 +64,33 @@ const App = {
 
         <!-- Nav links -->
         <nav class="flex flex-col gap-1 p-2 flex-1 overflow-y-auto">
-          <button v-for="item in navItems" :key="item.key"
-                  @click="page = item.key; if(window?.innerWidth < 768) sidebarOpen = false"
-                  :class="[
-                    'nav-side-btn flex items-center gap-2 w-full rounded-lg transition-all duration-200 text-left',
-                    page === item.key ? 'bg-accent-blue text-white' : 'text-gray-300 hover:bg-white/10',
-                    sidebarOpen ? 'px-3 py-1.5' : 'px-0 py-1.5 justify-center'
-                  ]">
-            <span class="text-base flex-shrink-0">{{ item.icon }}</span>
-            <span v-if="sidebarOpen" class="text-xs font-semibold truncate leading-tight">{{ item.label }}</span>
-          </button>
+          <div v-for="item in navItems" :key="item.key" class="flex flex-col gap-0.5">
+            <!-- Botón Principal -->
+            <button @click="handleNavClick(item)"
+                    :class="[
+                      'nav-side-btn flex items-center gap-2 w-full rounded-lg transition-all duration-200 text-left',
+                      (page === item.key || (item.children && item.children.some(c => c.key === page))) ? 'bg-accent-blue text-white' : 'text-gray-300 hover:bg-white/10',
+                      sidebarOpen ? 'px-3 py-1.5' : 'px-0 py-1.5 justify-center'
+                    ]">
+              <span class="text-base flex-shrink-0">{{ item.icon }}</span>
+              <span v-if="sidebarOpen" class="text-xs font-semibold truncate leading-tight flex-1">{{ item.label }}</span>
+              <span v-if="sidebarOpen && item.children" class="text-[10px] text-gray-400">
+                {{ expandedMenus[item.key] ? '▼' : '▶' }}
+              </span>
+            </button>
+            
+            <!-- Items del Submenú -->
+            <div v-if="sidebarOpen && item.children && expandedMenus[item.key]" class="flex flex-col gap-0.5 pl-6 mt-0.5">
+              <button v-for="child in item.children" :key="child.key"
+                      @click="page = child.key; if(window?.innerWidth < 768) sidebarOpen = false"
+                      :class="[
+                        'flex items-center gap-2 w-full rounded-lg py-1 px-3 transition-all duration-200 text-left text-xs',
+                        page === child.key ? 'bg-accent-steel text-white font-bold' : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                      ]">
+                <span class="truncate leading-tight">{{ child.label }}</span>
+              </button>
+            </div>
+          </div>
         </nav>
 
         <!-- Bottom section -->
@@ -110,6 +127,7 @@ const App = {
         <proceso-page v-if="page==='proceso'"
           :proc="proc" :pid_p="pid_p" :pid_n="pid_n"
           :alarmas="alarmas" :lazos="lazos"
+          :instrument-selection="instrumentSelection"
           @open-pid="openPid"/>
 
         <div v-if="page==='inicio_prueba'" class="flex-1 overflow-y-auto overflow-x-hidden">
@@ -144,6 +162,12 @@ const App = {
             @toast="showToast"/>
         </div>
 
+        <div v-if="page==='config_instrument_2'" class="flex-1 overflow-y-auto overflow-x-hidden">
+          <config-instrument-2-page
+            :instrument-selection="instrumentSelection"
+            @toast="showToast"/>
+        </div>
+
         <div v-if="page==='calibracion'" class="flex-1 overflow-y-auto overflow-x-hidden">
           <calibracion-page @toast="showToast" />
         </div>
@@ -162,6 +186,7 @@ const App = {
     <pid-modal v-if="modalPid.show"
       :pid="modalPid.pid==='PIC-01' ? pid_p : pid_n"
       :tag="modalPid.pid"
+      :control-pid-gas="instrumentSelection.b_Control_PID_Gas"
       @close="modalPid.show=false"
       @save="savePid"/>
 
@@ -181,12 +206,48 @@ const App = {
     const clock = ref('--:--:--');
     const sidebarOpen = ref(true);
 
+    const expandedMenus = reactive({
+      conf_instrum: false
+    });
+
+    const instrumentSelection = reactive({
+      b_Control_PID_Gas: false,
+      b_PID_POSIC_SW: false,
+      b_Sw_Wedge_Gas: false,
+      b_SW_DIL_MEDIDO_CALC: false,
+      b_Sw_Wedge_Gas_2: false,
+      b_SEL_LAMINAR: false,
+      b_SEL_T_baja: false
+    });
+
+    function handleNavClick(item) {
+      if (item.children) {
+        if (!sidebarOpen.value) {
+          sidebarOpen.value = true;
+          expandedMenus[item.key] = true;
+        } else {
+          expandedMenus[item.key] = !expandedMenus[item.key];
+        }
+      } else {
+        page.value = item.key;
+        if (window?.innerWidth < 768) sidebarOpen.value = false;
+      }
+    }
+
     const navItems = [
       { key: 'proceso', icon: '🏠', label: 'Inicio / Proceso' },
       { key: 'inicio_prueba', icon: '📝', label: 'Inicio Prueba' },
       { key: 'reportes', icon: '📥', label: 'Reportes' },
       { key: 'data_cruda', icon: '📊', label: 'Data Cruda' },
-      { key: 'rangos', icon: '🔧', label: 'Conf. Instrum.' },
+      {
+        key: 'conf_instrum',
+        icon: '🔧',
+        label: 'Conf. Instrum.',
+        children: [
+          { key: 'rangos', label: 'Rangos y Alarmas' },
+          { key: 'config_instrument_2', label: 'Config Instrument 2' }
+        ]
+      },
       { key: 'propiedades', icon: '🔧', label: 'Propiedades' },
       { key: 'calibracion', icon: '🎯', label: 'Datos Calibración' },
       { key: 'prueba_progreso', icon: '🔧', label: 'Prueba Progreso' },
@@ -257,6 +318,9 @@ const App = {
         Object.assign(pid_n, d.pid_nivel);
         lazos.value = d.lazos_habilitados;
         db_ok.value  = d.db_ok ?? false;
+        if (d.instrument_selection) {
+          Object.assign(instrumentSelection, d.instrument_selection);
+        }
       });
       socket.on('pid_updated', d => { Object.assign(d.instrumento === 'PIC-01' ? pid_p : pid_n, d); });
       socket.on('pid_config', d => {
@@ -268,7 +332,8 @@ const App = {
 
     return {
       page, connected, db_ok, lazos, toasts, alarmas, clock, proc, pid_p, pid_n, modalPid,
-      sidebarOpen, navItems, openPid, savePid, toggleLazos, loadAlarmas, showToast
+      sidebarOpen, navItems, openPid, savePid, toggleLazos, loadAlarmas, showToast,
+      expandedMenus, handleNavClick, instrumentSelection
     };
   }
 };
@@ -278,7 +343,7 @@ const App = {
 // ═══════════════════════════════════════════════════════════════
 const ProcesoPage = {
   name: 'ProcesoPage',
-  props: ['proc', 'pid_p', 'pid_n', 'alarmas', 'lazos'],
+  props: ['proc', 'pid_p', 'pid_n', 'alarmas', 'lazos', 'instrumentSelection'],
   emits: ['open-pid'],
   template: `
   <div class="flex flex-col h-full overflow-hidden">
@@ -323,11 +388,11 @@ const ProcesoPage = {
       </div>
 
       <!-- TAG LIT-01 (junto al tanque) -->
-      <div class="pid-tag li-tag" :class="alarmCls('r_LIT_001')">
-        <div class="pt-name">LIT-01</div>
-        <div class="pt-val">{{ fmt(proc.r_LIT_001,1) }}<span class="pt-unit"> %</span></div>
+      <div class="pid-tag li-tag" :class="alarmCls(instrumentSelection?.b_PID_POSIC_SW ? 'r_nivel_aux' : 'r_LIT_001')">
+        <div class="pt-name">{{ instrumentSelection?.b_PID_POSIC_SW ? 'LIT-01-Aux' : 'LIT-01' }}</div>
+        <div class="pt-val">{{ fmt(instrumentSelection?.b_PID_POSIC_SW ? proc.r_nivel_aux : proc.r_LIT_001, 1) }}<span class="pt-unit"> %</span></div>
         <div class="li-bar-wrap">
-          <div class="li-bar-fill" :style="{width: Math.min(100,Math.max(0,proc.r_LIT_001||0))+'%'}"></div>
+          <div class="li-bar-fill" :style="{width: Math.min(100,Math.max(0,(instrumentSelection?.b_PID_POSIC_SW ? proc.r_nivel_aux : proc.r_LIT_001)||0))+'%'}"></div>
         </div>
       </div>
       <!-- TAG WC (debajo de LIT-01) -->
@@ -455,6 +520,7 @@ const ProcesoPage = {
         r_P_Gas: 'PI-01',
         r_T_Oil_C: 'TI-01',
         r_LIT_001: 'LI-01',
+        r_nivel_aux: 'NIV-AUX',
         PDI_01: 'PDI-01',
         r_PDT_02: 'PDI-02',
         r_T_Gas: 'TI-02',
@@ -466,7 +532,11 @@ const ProcesoPage = {
       return alarmClass(props.proc[key], alarmMap.value[tag]);
     }
 
-    const levelPct = computed(() => Math.min(100, Math.max(0, parseFloat(props.proc.r_LIT_001) || 0)));
+    const activeLevel = computed(() => {
+      const isAux = props.instrumentSelection?.b_PID_POSIC_SW;
+      return parseFloat(isAux ? props.proc.r_nivel_aux : props.proc.r_LIT_001) || 0;
+    });
+    const levelPct = computed(() => Math.min(100, Math.max(0, activeLevel.value)));
 
     return { fmt, alarmCls, imgError, levelPct };
   }
@@ -740,13 +810,13 @@ const DataCrudaPage = {
 // ═══════════════════════════════════════════════════════════════
 const PidModal = {
   name: 'PidModal',
-  props: ['pid', 'tag'],
+  props: ['pid', 'tag', 'controlPidGas'],
   emits: ['close', 'save'],
   template: `
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal">
       <div class="modal-header">
-        <h3>{{ tag }} – {{ tag==='PIC-01' ? 'Control de Presión (PCV-01)' : 'Control de Nivel (LCV-01)' }}</h3>
+        <h3>{{ tag }} – {{ tag==='PIC-01' ? (controlPidGas ? 'Control de Nivel (PCV-01)' : 'Control de Presión (PCV-01)') : 'Control de Nivel (LCV-01)' }}</h3>
         <button class="modal-close" @click="$emit('close')">✕</button>
       </div>
       <div class="modal-body">
@@ -755,7 +825,7 @@ const PidModal = {
             <td class="label-cell">PV</td>
             <td class="value-cell">
               <span class="val-display">{{ fmt(pid.PV,3) }}</span>
-              <span style="font-size:10px;color:var(--text-secondary);"> {{ tag==='PIC-01'?'PSIG':'%' }}</span>
+              <span style="font-size:10px;color:var(--text-secondary);"> {{ tag==='PIC-01' ? (controlPidGas ? '%' : 'PSIG') : '%' }}</span>
             </td>
           </tr>
           <tr>
@@ -897,17 +967,15 @@ const RangosPage = {
       <div class="modal-box" style="max-width:420px">
         <div class="modal-title" style="color:#f97316">&#9888;&#65039; Activar Modo Manual</div>
         <div class="modal-body">
-          Estas a punto de forzar el instrumento
+          Estás a punto de forzar el instrumento
           <strong style="color:#ffd040">{{ modalManual.instrumento }}</strong> en <strong style="color:#ff6b6b">Modo Manual</strong>.<br><br>
           <span style="font-size:12px;color:var(--text-secondary)">
-            Antes de continuar asegurate de:<br>
-            &#128225; <b>Config DAQ</b> — Deshabilitar el canal analogico correspondiente.<br>
-            &#9889; <b>Config HART</b> — Pausar el polling de ese instrumento si aplica.
+            Al confirmar, el sistema deshabilitará <b>automáticamente</b> este instrumento en <b>Config DAQ</b> o <b>Config HART</b> (según el protocolo que esté activo) para evitar conflictos de datos con las señales físicas.
           </span>
         </div>
         <div class="modal-actions">
           <button class="btn-modal-cancel" @click="modalManual.show=false">Cancelar</button>
-          <button class="btn-modal-confirm" @click="confirmManual">Si, activar Manual</button>
+          <button class="btn-modal-confirm" @click="confirmManual">Sí, activar Manual</button>
         </div>
       </div>
     </div>
@@ -1965,7 +2033,7 @@ const DaqConfigPage = {
           <tbody>
             <tr v-for="ch in mergedChannels" :key="ch.var"
                 class="border-b border-gray-800 hover:bg-white/5 transition-colors"
-                :class="ch.open_wire ? 'opacity-50' : ''">
+                :class="[!ch.enabled ? 'opacity-40' : ch.open_wire ? 'opacity-50' : '']">
               <!-- Variable V (fija) -->
               <td class="px-3 py-2">
                 <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#0e271a] border border-[#1b5e20] text-xs font-mono font-bold text-accent-green">
@@ -2017,7 +2085,9 @@ const DaqConfigPage = {
               </td>
               <!-- Estado -->
               <td class="px-3 py-2 text-center">
-                <span v-if="ch.open_wire"
+                <span v-if="!ch.enabled"
+                      class="px-2 py-0.5 text-xs font-bold rounded bg-gray-800 text-gray-400">DESHABILITADO</span>
+                <span v-else-if="ch.open_wire"
                       class="px-2 py-0.5 text-xs font-bold rounded bg-red-900/60 text-red-300">SIN SEÑAL</span>
                 <span v-else
                       class="px-2 py-0.5 text-xs font-bold rounded bg-green-900/60 text-green-300">OK</span>
@@ -2153,6 +2223,7 @@ const DaqConfigPage = {
           raw: liveCh.raw !== undefined ? liveCh.raw : null,
           ma: liveCh.ma !== undefined ? liveCh.ma : null,
           open_wire: liveCh.open_wire !== undefined ? liveCh.open_wire : true,
+          enabled: dbCh.enabled !== undefined ? dbCh.enabled : 1,
         };
       });
     });
@@ -2969,6 +3040,153 @@ const CalibracionPage = {
 };
 
 
+// ═══════════════════════════════════════════════════════════════
+// CONFIG INSTRUMENT 2 PAGE (Selección de Instrumentos)
+// ═══════════════════════════════════════════════════════════════
+const ConfigInstrument2Page = {
+  name: 'ConfigInstrument2Page',
+  props: ['instrumentSelection'],
+  emits: ['toast'],
+  template: `
+  <div class="p-4 overflow-y-auto h-full">
+    <div class="inst-panel-container">
+      <h2 class="inst-panel-title">Selección de Instrumentos</h2>
+      
+      <div class="inst-grid">
+        
+        <!-- Control PID Gas -->
+        <div class="inst-card">
+          <div class="inst-card-title">Control PID Gas</div>
+          <div class="inst-card-buttons">
+            <button @click="toggleSelection('b_Control_PID_Gas')" class="retro-3d-btn">
+              {{ instrumentSelection.b_Control_PID_Gas ? 'NIVEL' : 'PRESION' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Selector de Nivel -->
+        <div class="inst-card">
+          <div class="inst-card-title">Selector de Nivel</div>
+          <div class="inst-card-buttons">
+            <button @click="toggleSelection('b_PID_POSIC_SW')" class="retro-3d-btn">
+              {{ instrumentSelection.b_PID_POSIC_SW ? 'LIT-01-Aux' : 'LIT-01' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Instrumento Medidor de Gas -->
+        <div class="inst-card">
+          <div class="inst-card-title">Instrumento Medidor de Gas</div>
+          <div class="inst-card-buttons">
+            <button @click="setSelection('b_Sw_Wedge_Gas', false)" 
+                    :class="['retro-3d-btn', instrumentSelection.b_Sw_Wedge_Gas ? 'inactive' : '']">
+              VORTEX
+            </button>
+            <button @click="setSelection('b_Sw_Wedge_Gas', true)" 
+                    :class="['retro-3d-btn', !instrumentSelection.b_Sw_Wedge_Gas ? 'inactive' : '']">
+              GAS DP
+            </button>
+          </div>
+        </div>
+
+        <!-- Flujo de Diluente -->
+        <div class="inst-card">
+          <div class="inst-card-title">Flujo de Diluente</div>
+          <div class="inst-card-buttons">
+            <button @click="setSelection('b_SW_DIL_MEDIDO_CALC', false)" 
+                    :class="['retro-3d-btn', instrumentSelection.b_SW_DIL_MEDIDO_CALC ? 'inactive' : '']">
+              MANUAL
+            </button>
+            <button @click="setSelection('b_SW_DIL_MEDIDO_CALC', true)" 
+                    :class="['retro-3d-btn', !instrumentSelection.b_SW_DIL_MEDIDO_CALC ? 'inactive' : '']">
+              ACTIVO
+            </button>
+          </div>
+        </div>
+
+        <!-- Selector cuña de gas -->
+        <div class="inst-card">
+          <div class="inst-card-title">Selector cuña de gas</div>
+          <div class="inst-card-buttons">
+            <button @click="setSelection('b_Sw_Wedge_Gas_2', false)" 
+                    :class="['retro-3d-btn', instrumentSelection.b_Sw_Wedge_Gas_2 ? 'inactive' : '']">
+              MANUAL
+            </button>
+            <button @click="setSelection('b_Sw_Wedge_Gas_2', true)" 
+                    :class="['retro-3d-btn', !instrumentSelection.b_Sw_Wedge_Gas_2 ? 'inactive' : '']">
+              BAJA
+            </button>
+          </div>
+        </div>
+
+        <!-- Método de Medición de Líquido -->
+        <div class="inst-card">
+          <div class="inst-card-title">Método de Medición de Líquido</div>
+          <div class="inst-card-buttons">
+            <button @click="setLiquidMethod('AUTOMATICO')" 
+                    :class="['retro-3d-btn', (instrumentSelection.b_SEL_LAMINAR || instrumentSelection.b_SEL_T_baja) ? 'inactive' : '']">
+              AUTOMATICO
+            </button>
+            <button @click="setLiquidMethod('LAMINAR')" 
+                    :class="['retro-3d-btn', (!instrumentSelection.b_SEL_LAMINAR || instrumentSelection.b_SEL_T_baja) ? 'inactive' : '']">
+              LAMINAR
+            </button>
+            <button @click="setLiquidMethod('BAJA')" 
+                    :class="['retro-3d-btn', (instrumentSelection.b_SEL_LAMINAR || !instrumentSelection.b_SEL_T_baja) ? 'inactive' : '']">
+              BAJA
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="inst-panel-footer">
+        NOTA: El texto en los botones representa el ESTADO ACTUAL del mismo
+      </div>
+    </div>
+  </div>`,
+  setup(props, { emit }) {
+    async function updateSelection(payload) {
+      try {
+        const response = await fetch('/api/instrument_selection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (response.ok) {
+          emit('toast', '✅ Configuración de instrumento actualizada');
+        } else {
+          emit('toast', '❌ Error al actualizar configuración', 'error');
+        }
+      } catch (e) {
+        emit('toast', '❌ Error de red al actualizar', 'error');
+      }
+    }
+
+    function toggleSelection(key) {
+      const currentVal = props.instrumentSelection[key];
+      updateSelection({ [key]: !currentVal });
+    }
+
+    function setSelection(key, val) {
+      updateSelection({ [key]: val });
+    }
+
+    function setLiquidMethod(method) {
+      if (method === 'AUTOMATICO') {
+        updateSelection({ b_SEL_LAMINAR: false, b_SEL_T_baja: false });
+      } else if (method === 'LAMINAR') {
+        updateSelection({ b_SEL_LAMINAR: true, b_SEL_T_baja: false });
+      } else if (method === 'BAJA') {
+        updateSelection({ b_SEL_LAMINAR: false, b_SEL_T_baja: true });
+      }
+    }
+
+    return { toggleSelection, setSelection, setLiquidMethod };
+  }
+};
+
+
 // ── Mount ────────────────────────────────────────────────────
 const app = createApp(App);
 app.component('proceso-page', ProcesoPage);
@@ -2984,5 +3202,6 @@ app.component('rangos-page', RangosPage);
 app.component('calibracion-page', CalibracionPage);
 app.component('daq-config-page', DaqConfigPage);
 app.component('hart-config-page', HartConfigPage);
+app.component('config-instrument-2-page', ConfigInstrument2Page);
 app.mount('#app');
 

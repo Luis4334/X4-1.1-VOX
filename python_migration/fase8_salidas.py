@@ -37,9 +37,9 @@ _SALIDA_SCALE = 100.0   # TODO: Cambia a 327.67 si tu DAQ usa rango 0-32767
                          #       o a 10.0 si usa rango 0-1000, etc.
 
 _OUTPUT_MAP = [
-    # Variable CV del PID → dirección Modbus → descripción
-    ("fb_LEVEL_PID_r_CVEU",  20, _SALIDA_SCALE, 0, 10000, "LCV-01 Válvula Nivel   [0-100%]"),  # TODO addr
-    ("fb_PRESS_PID_r_CVEU",  21, _SALIDA_SCALE, 0, 10000, "PCV-01 Válvula Presión [0-100%]"),  # TODO addr
+    # Variable escalada del PLC → dirección Modbus → escala → clamp_min → clamp_max → descripción
+    ("r_Local_2_O_Ch0Data",  20, 1.0, 4000, 20000, "LCV-01 Válvula Nivel   [4000-20000 mA]"),
+    ("r_Local_2_O_Ch1Data",  21, 1.0, 4000, 20000, "PCV-01 Válvula Presión [4000-20000 mA]"),
 ]
 
 # ─────────────────────────────────────────────────────────────

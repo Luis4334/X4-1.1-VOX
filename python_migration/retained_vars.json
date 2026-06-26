@@ -36,11 +36,11 @@
   "r_SCL_VORTEX_T_01_InEUMin": 0.0,
   "r_SCL_VORTEX_T_01_InEUMax": 100.0,
   "r_LEVEL_PID_SP": 50.0,
-  "r_LEVEL_PID_03_KP": 1.0,
+  "r_LEVEL_PID_03_KP": 0.2,
   "r_LEVEL_PID_03_KI": 0.1,
   "r_LEVEL_PID_03_KD": 0.0,
   "r_PRESS_PID_SP": 50.0,
-  "r_PRESS_PID_03_KP": 1.0,
+  "r_PRESS_PID_03_KP": 0.2,
   "r_PRESS_PID_03_KI": 0.1,
   "r_PRESS_PID_03_KD": 0.0,
   "r_S_Oil_ref": 0.0,
@@ -57,5 +57,7 @@
   "b_SW_DIL_MEDIDO_CALC": false,
   "b_SEL_LAMINAR": false,
   "b_SEL_T_baja": false,
-  "b_habilitar_Loggers": false
+  "b_habilitar_Loggers": false,
+  "b_Control_PID_Gas": false,
+  "b_PID_POSIC_SW": true
 }

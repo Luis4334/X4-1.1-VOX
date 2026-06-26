@@ -756,3 +756,123 @@ html, body {
     transition: background 0.2s;
 }
 .btn-modal-confirm:hover { background: #dc2626; }
+
+/* ── Selección de Instrumentos (Retro Panel & 3D Buttons) ── */
+.inst-panel-container {
+  background-color: #d0e6ec;
+  border: 3px solid #0f3d5c;
+  border-radius: 8px;
+  padding: 24px;
+  color: #0f3d5c;
+  box-shadow: inset 0 0 10px rgba(0,0,0,0.1), 0 10px 25px rgba(0,0,0,0.4);
+  max-width: 900px;
+  margin: 30px auto;
+  font-family: 'Inter', sans-serif;
+}
+
+.inst-panel-title {
+  color: #003366;
+  font-weight: 800;
+  font-size: 28px;
+  text-align: center;
+  margin-bottom: 24px;
+  border-bottom: 3px double #003366;
+  padding-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.inst-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+@media (max-width: 768px) {
+  .inst-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.inst-card {
+  background-color: #d9ecee;
+  border: 2px solid #0f3d5c;
+  border-radius: 6px;
+  padding: 18px;
+  text-align: center;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 120px;
+}
+
+.inst-card-title {
+  color: #003366;
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  letter-spacing: 0.5px;
+}
+
+.inst-card-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* 3D Button Style matching the mockup */
+.retro-3d-btn {
+  background-color: #1b4f72;
+  color: white !important;
+  font-family: 'Roboto Mono', monospace;
+  font-weight: bold;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  border-top: 3px solid #f8fafc;
+  border-left: 3px solid #f8fafc;
+  border-right: 3px solid #102a3a;
+  border-bottom: 3px solid #102a3a;
+  padding: 8px 24px;
+  min-width: 110px;
+  text-align: center;
+  user-select: none;
+  cursor: pointer;
+  box-shadow: 0 4px 5px rgba(0,0,0,0.2);
+  transition: transform 0.05s ease;
+}
+
+.retro-3d-btn:active {
+  border-top: 3px solid #102a3a;
+  border-left: 3px solid #102a3a;
+  border-right: 3px solid #f8fafc;
+  border-bottom: 3px solid #f8fafc;
+  transform: translateY(2px);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+
+.retro-3d-btn.inactive {
+  background-color: #566573;
+  border-top: 3px solid #cbd5e1;
+  border-left: 3px solid #cbd5e1;
+  border-right: 3px solid #2c3e50;
+  border-bottom: 3px solid #2c3e50;
+  opacity: 0.6;
+}
+
+.retro-3d-btn.inactive:hover {
+  opacity: 0.85;
+}
+
+.inst-panel-footer {
+  margin-top: 24px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 13px;
+  color: #0f3d5c;
+  border-top: 2px dashed #0f3d5c;
+  padding-top: 12px;
+  letter-spacing: 0.5px;
+}
+

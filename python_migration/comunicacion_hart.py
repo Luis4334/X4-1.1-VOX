@@ -285,6 +285,12 @@ def _read_with_retry(client, fn_code: int, address: int, count: int, slave_id: i
     return result, fn_code
 
 
+def _set_v_attr(v_obj, attr_name, value):
+    if hasattr(v_obj, 'instrument_overrides') and attr_name in v_obj.instrument_overrides:
+        return
+    setattr(v_obj, attr_name, value)
+
+
 # ── Parser de registros ───────────────────────────────────────
 
 def _parse_registers(result, device_index: int = 0, config: dict = None):
@@ -355,11 +361,11 @@ def _parse_registers(result, device_index: int = 0, config: dict = None):
             try:
                 _v = _get_V()
                 if _v is not None and _v.b_habilitar_F_HART:
-                    _v.r_PDT_02  = pv_2
-                    _v.r_P_Oil   = pv_3
-                    _v.r_T_Oil_C = (pv_4 - 32.0) / 1.8
-                    _v.r_T_Oil_F = pv_4
-                    logger.debug(f"[HART-WEDGE_LIQ] PDT_02={_v.r_PDT_02:.3f} | P_Oil={_v.r_P_Oil:.3f} | T={_v.r_T_Oil_C:.2f}°C")
+                    _set_v_attr(_v, "r_PDT_02", pv_2)
+                    _set_v_attr(_v, "r_P_Oil", pv_3)
+                    _set_v_attr(_v, "r_T_Oil_C", (pv_4 - 32.0) / 1.8)
+                    _set_v_attr(_v, "r_T_Oil_F", pv_4)
+                    logger.debug(f"[HART-WEDGE_LIQ] PDT_02={getattr(_v, 'r_PDT_02', 0.0):.3f} | P_Oil={getattr(_v, 'r_P_Oil', 0.0):.3f} | T={getattr(_v, 'r_T_Oil_C', 0.0):.2f}°C")
             except Exception as _e:
                 logger.warning(f"[HART-WEDGE_LIQ] Error inyectando en V: {_e}")
 
@@ -372,8 +378,8 @@ def _parse_registers(result, device_index: int = 0, config: dict = None):
             try:
                 _v = _get_V()
                 if _v is not None and _v.b_habilitar_F_HART:
-                    _v.r_PDT_01 = pv_2
-                    logger.debug(f"[HART-LAMINAR_A] PDT_01={_v.r_PDT_01:.3f} inH2O")
+                    _set_v_attr(_v, "r_PDT_01", pv_2)
+                    logger.debug(f"[HART-LAMINAR_A] PDT_01={getattr(_v, 'r_PDT_01', 0.0):.3f} inH2O")
             except Exception as _e:
                 logger.warning(f"[HART-LAMINAR_A] Error inyectando en V: {_e}")
 
@@ -386,8 +392,8 @@ def _parse_registers(result, device_index: int = 0, config: dict = None):
             try:
                 _v = _get_V()
                 if _v is not None and _v.b_habilitar_F_HART:
-                    _v.r_PDT_03 = pv_2
-                    logger.debug(f"[HART-LAMINAR_B] PDT_03={_v.r_PDT_03:.3f} inH2O")
+                    _set_v_attr(_v, "r_PDT_03", pv_2)
+                    logger.debug(f"[HART-LAMINAR_B] PDT_03={getattr(_v, 'r_PDT_03', 0.0):.3f} inH2O")
             except Exception as _e:
                 logger.warning(f"[HART-LAMINAR_B] Error inyectando en V: {_e}")
 
@@ -400,10 +406,10 @@ def _parse_registers(result, device_index: int = 0, config: dict = None):
             try:
                 _v = _get_V()
                 if _v is not None and _v.b_habilitar_F_HART:
-                    _v.r_DP_gas = pv_2
-                    _v.r_P_Gas  = pv_3
-                    _v.r_T_Gas  = (pv_4 - 32.0) / 1.8
-                    logger.debug(f"[HART-WEDGE_GAS] DP_gas={_v.r_DP_gas:.3f} | P_Gas={_v.r_P_Gas:.3f} | T={_v.r_T_Gas:.2f}°C")
+                    _set_v_attr(_v, "r_DP_gas", pv_2)
+                    _set_v_attr(_v, "r_P_Gas", pv_3)
+                    _set_v_attr(_v, "r_T_Gas", (pv_4 - 32.0) / 1.8)
+                    logger.debug(f"[HART-WEDGE_GAS] DP_gas={getattr(_v, 'r_DP_gas', 0.0):.3f} | P_Gas={getattr(_v, 'r_P_Gas', 0.0):.3f} | T={getattr(_v, 'r_T_Gas', 0.0):.2f}°C")
             except Exception as _e:
                 logger.warning(f"[HART-WEDGE_GAS] Error inyectando en V: {_e}")
 
@@ -416,8 +422,8 @@ def _parse_registers(result, device_index: int = 0, config: dict = None):
             try:
                 _v = _get_V()
                 if _v is not None and _v.b_habilitar_F_HART:
-                    _v.r_LIT_001 = pv_1
-                    logger.debug(f"[HART-NIVEL] LIT_001={_v.r_LIT_001:.3f} %")
+                    _set_v_attr(_v, "r_LIT_001", pv_1)
+                    logger.debug(f"[HART-NIVEL] LIT_001={getattr(_v, 'r_LIT_001', 0.0):.3f} %")
             except Exception as _e:
                 logger.warning(f"[HART-NIVEL] Error inyectando en V: {_e}")
 

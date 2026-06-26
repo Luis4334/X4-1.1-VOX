@@ -582,5 +582,8 @@ def p05_main():
         V.r_k_mp        = 1.1
     V.b_AUX_CUNA_ALTA = cuna_alta
 
+    # Aplicar overrides manuales de instrumentos (bypasea el escalamiento de f05b/f05c)
+    V.apply_overrides()
+
     # Fin del programa
     V.i_P05_duracion_mSeg = V.t_P05_duracion.read()

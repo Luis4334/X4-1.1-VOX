@@ -45,12 +45,12 @@ logger = logging.getLogger("orinoco.fase2")
 #
 _INPUT_MAP = [
     # Canal físico → Variable V                   addr  escala   Descripción
-    ("r_Local_2_I_Ch0Data",  0, 1000.0, "CH:00  PCV-01 Valvula de Gas [mA]"),
-    ("r_Local_2_I_Ch1Data",  1, 1000.0, "CH:01  LIC-01 Valvula de Liquido [mA]"),
-    ("r_Local_2_I_Ch2Data",  2, 1000.0, "CH:02  VIT-01 VIscosimetro [mA]"),
-    ("r_Local_2_I_Ch3Data",  3, 1000.0, "CH:03  GVF Sonartrac/Sensor [mA]"),
-    ("r_Local_4_I_Ch0Data",  4, 1000.0, "CH:04  FT-02    DP Wedge [mA]"),
-    ("r_Local_4_I_Ch1Data",  5, 1000.0, "CH:05  PT-02    Presión Aceite [mA]"),
+    ("r_Local_2_I_Ch0Data",  0, 1000.0, "CH:00  LIT-01 Transmisor de Nivel [mA]"),
+    ("r_Local_2_I_Ch1Data",  1, 1000.0, "CH:01  FT-01 Caudal (DP Baja) [mA]"),
+    ("r_Local_2_I_Ch2Data",  2, 1000.0, "CH:02  VORTEX_Q_01 Caudal Gas [mA]"),
+    ("r_Local_2_I_Ch3Data",  3, 1000.0, "CH:03  FT-04 Caudal (DP Alta) [mA]"),
+    ("r_Local_4_I_Ch0Data",  4, 1000.0, "CH:04  FT-02 DP Wedge [mA]"),
+    ("r_Local_4_I_Ch1Data",  5, 1000.0, "CH:05  PT-02 Presión Aceite [mA]"),
 ]
 
 # Valor que la DAQ devuelve para canal sin señal
@@ -388,16 +388,17 @@ def p02_entradas():
 
     # ─── Escalamiento: Raw → Unidades de Ingeniería (F05B_MAI.LSF) ──────
 
-    # Nivel (LIT)
-    _scl_LIT.execute(V.r_Local_2_I_Ch0Data,
-                     V.r_SCL_LIT_InRawMin, V.r_SCL_LIT_InRawMax,
-                     V.r_SCL_LIT_InEUMin, V.r_SCL_LIT_InEUMax)
-    V.r_LIT_001 = _hll_LIT.execute(_scl_LIT.r_Out, 0.0, 100.0)
+    # Nivel (LIT) — omitir si HART está activo y lee por red
+    if not V.b_habilitar_F_HART and "r_LIT_001" not in V.instrument_overrides:
+        _scl_LIT.execute(V.r_Local_2_I_Ch0Data,
+                         V.r_SCL_LIT_InRawMin, V.r_SCL_LIT_InRawMax,
+                         V.r_SCL_LIT_InEUMin, V.r_SCL_LIT_InEUMax)
+        V.r_LIT_001 = _hll_LIT.execute(_scl_LIT.r_Out, 0.0, 100.0)
 
     # Temperatura de Aceite (TIT_01) — omitir si HART FIT-02 está activo
     # Cuando V.b_habilitar_F_HART es True, la conversión °F→°C ya fue aplicada
     # por el HARTPoller e inyectada directamente en V.r_T_Oil_C.
-    if not V.b_habilitar_F_HART:
+    if not V.b_habilitar_F_HART and "r_T_Oil_C" not in V.instrument_overrides:
         _scl_TIT.execute(V.r_Local_4_I_Ch2Data,
                          V.r_SCL_TIT_InRawMin, V.r_SCL_TIT_InRawMax,
                          V.r_SCL_TIT_InEUMin, V.r_SCL_TIT_InEUMax)
@@ -416,24 +417,25 @@ def p02_entradas():
     # Presión de Gas (PT_01) — omitir si HART FIT-03 (Device 4) está activo
     # Cuando b_habilitar_F_HART es True y Device 4 está conectado, el valor
     # ya fue inyectado en V.r_P_Gas por el HARTPoller.
-    if not V.b_habilitar_F_HART:
+    if not V.b_habilitar_F_HART and "r_P_Gas" not in V.instrument_overrides:
         _scl_PT.execute(V.r_Local_4_I_Ch4Data,
                         V.r_SCL_PT_InRawMin, V.r_SCL_PT_InRawMax,
                         V.r_SCL_PT_InEUMin, V.r_SCL_PT_InEUMax)
         V.r_P_Gas = _hll_PT.execute(_scl_PT.r_Out, 0.0, 1000.0)
 
     # Temperatura de Gas (TIT_02) — omitir si HART FIT-03 (Device 4) está activo
-    if not V.b_habilitar_F_HART:
+    if not V.b_habilitar_F_HART and "r_T_Gas" not in V.instrument_overrides:
         _scl_VORTEX_T.execute(V.r_Local_4_I_Ch5Data,
                               V.r_SCL_VORTEX_T_01_InRawMin, V.r_SCL_VORTEX_T_01_InRawMax,
                               V.r_SCL_VORTEX_T_01_InEUMin, V.r_SCL_VORTEX_T_01_InEUMax)
         V.r_T_Gas = _hll_VORTEX_T.execute(_scl_VORTEX_T.r_Out, 0.0, 300.0)
 
     # Water Cut (WC)
-    _scl_WC.execute(V.r_Local_4_I_Ch7Data,
-                    V.r_SCL_WC_InRawMin, V.r_SCL_WC_InRawMax,
-                    V.r_SCL_WC_InEUMin, V.r_SCL_WC_InEUMax)
-    V.r_WC = _hll_WC.execute(_scl_WC.r_Out, 0.0, 100.0)
+    if "r_WC" not in V.instrument_overrides:
+        _scl_WC.execute(V.r_Local_4_I_Ch7Data,
+                        V.r_SCL_WC_InRawMin, V.r_SCL_WC_InRawMax,
+                        V.r_SCL_WC_InEUMin, V.r_SCL_WC_InEUMax)
+        V.r_WC = _hll_WC.execute(_scl_WC.r_Out, 0.0, 100.0)
 
     # Flujo Diluente (FIT_05)
     _scl_FIT_05.execute(V.r_flujo_dil_4_20mA,
@@ -444,7 +446,7 @@ def p02_entradas():
     # Flujo Laminar Alta (FT_01 / PDT_01) — omitir si HART PDT-01 está activo
     # Cuando V.b_habilitar_F_HART es True, el valor ya fue inyectado
     # en V.r_PDT_01 por el hilo HARTPoller (device_index==1, comunicacion_hart.py).
-    if not V.b_habilitar_F_HART:
+    if not V.b_habilitar_F_HART and "r_PDT_01" not in V.instrument_overrides:
         _scl_FT_01.execute(V.r_Local_2_I_Ch1Data,
                            V.r_SCL_FT_01_InRawMin, V.r_SCL_FT_01_InRawMax,
                            V.r_SCL_FT_01_InEUMin, V.r_SCL_FT_01_InEUMax)
@@ -453,7 +455,7 @@ def p02_entradas():
     # Flujo Wedge (FT_02 / PDT_02) — omitir si HART FIT-02 está activo
     # Cuando V.b_habilitar_F_HART es True, el valor ya fue inyectado
     # directamente en V.r_PDT_02 por el hilo HARTPoller (comunicacion_hart.py).
-    if not V.b_habilitar_F_HART:
+    if not V.b_habilitar_F_HART and "r_PDT_02" not in V.instrument_overrides:
         _scl_FT_02.execute(V.r_Local_4_I_Ch0Data,
                            V.r_SCL_FT_02_InRawMin, V.r_SCL_FT_02_InRawMax,
                            V.r_SCL_FT_02_InEUMin, V.r_SCL_FT_02_InEUMax)
@@ -462,7 +464,7 @@ def p02_entradas():
     # Flujo Laminar Baja (FT_04 / PDT_03) — omitir si HART PDT-03 (Device 3) está activo
     # Cuando b_habilitar_F_HART es True y Device 3 está conectado, el valor
     # ya fue inyectado en V.r_PDT_03 por el HARTPoller.
-    if not V.b_habilitar_F_HART:
+    if not V.b_habilitar_F_HART and "r_PDT_03" not in V.instrument_overrides:
         _scl_FT_04.execute(V.r_Local_2_I_Ch3Data,
                            V.r_SCL_FT_04_InRawMin, V.r_SCL_FT_04_InRawMax,
                            V.r_SCL_FT_04_InEUMin, V.r_SCL_FT_04_InEUMax)
@@ -474,6 +476,9 @@ def p02_entradas():
                            V.r_SCL_DP_01_InRawMin, V.r_SCL_DP_01_InRawMax,
                            V.r_SCL_DP_01_InEUMin, V.r_SCL_DP_01_InEUMax)
         V.r_P_Oil = clamp(_scl_DP_01.r_Out, 0.0, 2000.0)
+
+    # Aplicar overrides manuales de instrumentos
+    V.apply_overrides()
 
     V.i_P02_duracion_mSeg = timer.read()
 

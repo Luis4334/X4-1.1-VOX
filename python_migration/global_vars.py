@@ -25,6 +25,7 @@ class GlobalVars:
         #  BOOLEANAS — Estados, switches, flags
         # ═══════════════════════════════════════════════════════════════
         self.b_primer_scan = True
+        self.instrument_overrides = {}
         self.b_aaaaa = False
         self.b_fijar_valores_defecto = False
         self.b_fijar_valores_defecto_ton = False
@@ -909,6 +910,11 @@ class GlobalVars:
         self.i_systim_r1_hh = now.hour
         self.i_systim_r1_mm = now.minute
         self.i_systim_r1_ss = now.second
+
+    def apply_overrides(self):
+        """Aplica los valores manuales de instrumentos si están en override."""
+        for tag, val in self.instrument_overrides.items():
+            setattr(self, tag, val)
 
 
 # Instancia global singleton

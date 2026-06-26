@@ -411,7 +411,7 @@ def websocket_updater():
             pid_nivel_data = {
                 "instrumento": "LIC-01",
                 "modo":        "Auto" if not V.b_MAN_LC else "Manual",
-                "PV":          round(V.r_LIT_001, 2),
+                "PV":          round(V.r_nivel_aux if V.b_PID_POSIC_SW else V.r_LIT_001, 2),
                 "SP":          round(V.r_LEVEL_PID_SP, 2),
                 "CV":          round(V.fb_LEVEL_PID_r_CVEU, 2),   # LCV-01: r_CVEU del PID de Nivel
                 "CV_manual":   round(V.r_LEVEL_PID_03_CVOverride, 2),
@@ -423,13 +423,23 @@ def websocket_updater():
             pid_presion_data = {
                 "instrumento": "PIC-01",
                 "modo":        "Auto" if not V.b_MAN_PC else "Manual",
-                "PV":          round(V.r_P_Gas, 2),
+                "PV":          round(V.r_PRESS_PID_PV, 2),
                 "SP":          round(V.r_PRESS_PID_SP, 2),
                 "CV":          round(V.fb_PRESS_PID_r_CVEU, 2),   # PCV-01: r_CVEU del PID de Presion
                 "CV_manual":   round(V.r_PRESS_PID_03_CVOverride, 2),
                 "Kp":          round(V.r_PRESS_PID_03_KP, 4),
                 "Ki":          round(V.r_PRESS_PID_03_KI, 4),
                 "Kd":          round(V.r_PRESS_PID_03_KD, 4),
+            }
+
+            instrument_selection_data = {
+                "b_Control_PID_Gas": bool(V.b_Control_PID_Gas),
+                "b_PID_POSIC_SW": bool(V.b_PID_POSIC_SW),
+                "b_Sw_Wedge_Gas": bool(V.b_Sw_Wedge_Gas),
+                "b_SW_DIL_MEDIDO_CALC": bool(V.b_SW_DIL_MEDIDO_CALC),
+                "b_Sw_Wedge_Gas_2": bool(V.b_Sw_Wedge_Gas_2),
+                "b_SEL_LAMINAR": bool(V.b_SEL_LAMINAR),
+                "b_SEL_T_baja": bool(V.b_SEL_T_baja),
             }
 
             # ── Estado del Motor PLC ──
@@ -447,6 +457,7 @@ def websocket_updater():
                 "plc":          plc_status,
                 "lazos_habilitados": not V.b_DESHABILITA_PID,
                 "db_ok":        global_db_ok,
+                "instrument_selection": instrument_selection_data,
             })
 
             # ── Guardar histórico en DB cada 10 s (10 × 1000 ms ciclo) ──
@@ -630,6 +641,75 @@ def toggle_lazos():
 def plc_status():
     """Estado en tiempo real del motor SoftPLC."""
     return jsonify(plc_engine.get_status())
+
+
+@app.route("/api/instrument_selection", methods=["GET", "POST"])
+def instrument_selection():
+    if request.method == "POST":
+        d = request.get_json() or {}
+        if "b_Control_PID_Gas" in d:
+            V.b_Control_PID_Gas = bool(d["b_Control_PID_Gas"])
+        if "b_PID_POSIC_SW" in d:
+            V.b_PID_POSIC_SW = bool(d["b_PID_POSIC_SW"])
+        if "b_Sw_Wedge_Gas" in d:
+            V.b_Sw_Wedge_Gas = bool(d["b_Sw_Wedge_Gas"])
+        if "b_SW_DIL_MEDIDO_CALC" in d:
+            V.b_SW_DIL_MEDIDO_CALC = bool(d["b_SW_DIL_MEDIDO_CALC"])
+        if "b_Sw_Wedge_Gas_2" in d:
+            V.b_Sw_Wedge_Gas_2 = bool(d["b_Sw_Wedge_Gas_2"])
+        if "b_SEL_LAMINAR" in d:
+            V.b_SEL_LAMINAR = bool(d["b_SEL_LAMINAR"])
+        if "b_SEL_T_baja" in d:
+            V.b_SEL_T_baja = bool(d["b_SEL_T_baja"])
+            V.b_Sel_T_baja = bool(d["b_SEL_T_baja"])
+        
+        try:
+            from fase1_sistema import save_retained_vars
+            save_retained_vars()
+        except Exception as e:
+            logger.error(f"Error guardando variables retenidas en POST /api/instrument_selection: {e}")
+            
+        return jsonify({"ok": True})
+        
+    return jsonify({
+        "b_Control_PID_Gas": bool(V.b_Control_PID_Gas),
+        "b_PID_POSIC_SW": bool(V.b_PID_POSIC_SW),
+        "b_Sw_Wedge_Gas": bool(V.b_Sw_Wedge_Gas),
+        "b_SW_DIL_MEDIDO_CALC": bool(V.b_SW_DIL_MEDIDO_CALC),
+        "b_Sw_Wedge_Gas_2": bool(V.b_Sw_Wedge_Gas_2),
+        "b_SEL_LAMINAR": bool(V.b_SEL_LAMINAR),
+        "b_SEL_T_baja": bool(V.b_SEL_T_baja),
+    })
+
+
+@app.route("/api/debug_V", methods=["GET"])
+def debug_V():
+    import sys
+    import fase2_entradas as _f2
+    import scan_engine as _se
+    import comunicacion_hart as _ch
+    
+    gv_mod = sys.modules.get('global_vars')
+    pm_gv_mod = sys.modules.get('python_migration.global_vars')
+    
+    return jsonify({
+        "app_V_id": id(V),
+        "app_V_r_LIT_001": getattr(V, 'r_LIT_001', None),
+        "app_V_overrides": getattr(V, 'instrument_overrides', None),
+        
+        "f2_V_id": id(_f2.V) if hasattr(_f2, 'V') else None,
+        "f2_V_r_LIT_001": getattr(_f2.V, 'r_LIT_001', None) if hasattr(_f2, 'V') else None,
+        "f2_V_overrides": getattr(_f2.V, 'instrument_overrides', None) if hasattr(_f2, 'V') else None,
+        
+        "se_V_id": id(_se.V) if hasattr(_se, 'V') else None,
+        "ch_V_id": id(_ch._get_V()) if hasattr(_ch, '_get_V') and _ch._get_V() is not None else None,
+        
+        "global_vars_in_sys_modules": gv_mod is not None,
+        "pm_global_vars_in_sys_modules": pm_gv_mod is not None,
+        
+        "global_vars_V_id": id(gv_mod.V) if gv_mod else None,
+        "pm_global_vars_V_id": id(pm_gv_mod.V) if pm_gv_mod else None,
+    })
 
 
 @app.route("/api/plc/simulacion", methods=["POST"])
@@ -836,9 +916,98 @@ def get_alarma(instrumento):
     return jsonify(rows[0] if rows else {}), (200 if rows else 404)
 
 
+_INSTRUMENT_MAPPING = {
+    "LI-01": {
+        "daq": ["r_Local_2_I_Ch0Data"],
+        "hart": ["NIVEL"]
+    },
+    "PDI-01": {
+        "daq": ["r_Local_2_I_Ch1Data"],
+        "hart": ["LAMINAR_A"]
+    },
+    "PDI-03": {
+        "daq": ["r_Local_2_I_Ch3Data"],
+        "hart": ["LAMINAR_B"]
+    },
+    "PDI-02": {
+        "daq": ["r_Local_4_I_Ch0Data"],
+        "hart": ["WEDGE_LIQ"]
+    },
+    "PI-01": {
+        "daq": ["r_Local_4_I_Ch4Data"],
+        "hart": ["WEDGE_GAS"]
+    },
+    "TI-01": {
+        "daq": ["r_Local_4_I_Ch2Data"],
+        "hart": ["WEDGE_LIQ"]
+    },
+    "TI-02": {
+        "daq": ["r_Local_4_I_Ch5Data"],
+        "hart": ["WEDGE_GAS"]
+    },
+    "FI-03": {
+        "daq": ["r_Local_2_I_Ch2Data"],
+        "hart": []
+    },
+    "WC": {
+        "daq": ["r_Local_4_I_Ch7Data"],
+        "hart": []
+    }
+}
+
+
+def _sync_daq_hart_enabled_state(instrumento, modo_manual):
+    """
+    Sincroniza el estado de habilitación de canales DAQ y HART cuando un instrumento
+    pasa a manual o a automático, dependiendo de la comunicación que esté activa.
+    """
+    mapping = _INSTRUMENT_MAPPING.get(instrumento)
+    if not mapping:
+        return
+
+    enabled_val = 0 if modo_manual else 1
+
+    # Determinar si el tag está usando HART o DAQ actualmente
+    uses_hart = False
+
+    # Caso 1: Instrumentos que solo existen en HART
+    if instrumento in ["PI-01", "TI-02"]:
+        uses_hart = True
+    # Caso 2: Instrumentos que solo existen en DAQ
+    elif instrumento in ["FI-03", "WC"]:
+        uses_hart = False
+    # Caso 3: Instrumentos híbridos que dependen de V.b_habilitar_F_HART
+    else:
+        uses_hart = bool(getattr(V, "b_habilitar_F_HART", False))
+
+    if uses_hart:
+        hart_types = mapping.get("hart", [])
+        if hart_types:
+            placeholders = ",".join(["%s"] * len(hart_types))
+            db_exec(
+                f"UPDATE hart_channel_config SET enabled = %s WHERE instrument_type IN ({placeholders})",
+                [enabled_val] + hart_types,
+                fetch=False
+            )
+    else:
+        daq_vars = mapping.get("daq", [])
+        if daq_vars:
+            placeholders = ",".join(["%s"] * len(daq_vars))
+            db_exec(
+                f"UPDATE daq_channel_config SET enabled = %s WHERE v_name IN ({placeholders})",
+                [enabled_val] + daq_vars,
+                fetch=False
+            )
+            # Recargar DAQ en caliente
+            _load_daq_channels_from_db()
+
+
 @app.route("/api/alarmas/<instrumento>", methods=["POST"])
 def post_alarma(instrumento):
     d = request.get_json() or {}
+    inst_upper = instrumento.upper()
+    modo_manual = int(bool(d.get("modo_manual", 0)))
+    
     db_exec(
         """UPDATE tabla_configuracion_alarma
            SET minimo=%s,maximo=%s,SP_HH=%s,SP_H=%s,SP_L=%s,SP_LL=%s,
@@ -846,17 +1015,22 @@ def post_alarma(instrumento):
            WHERE instrumento=%s""",
         (d.get("minimo"), d.get("maximo"), d.get("SP_HH"), d.get("SP_H"),
          d.get("SP_L"), d.get("SP_LL"), d.get("DB"), d.get("RAW_H"), d.get("RAW_L"),
-         int(bool(d.get("modo_manual", 0))), d.get("valor_manual"),
-         instrumento.upper()),
+         modo_manual, d.get("valor_manual"),
+         inst_upper),
         fetch=False
     )
+    
+    # Sincronizar habilitación en Config DAQ y Config HART
+    _sync_daq_hart_enabled_state(inst_upper, modo_manual)
+    
     # Si modo manual activo, escribir valor en V inmediatamente
-    _apply_manual_override(instrumento.upper(), d.get("modo_manual", 0), d.get("valor_manual"))
+    _apply_manual_override(inst_upper, modo_manual, d.get("valor_manual"))
     return jsonify({"ok": True})
 
 
+
 def _apply_manual_override(instrumento, modo_manual, valor_manual):
-    """Escribe el valor manual en la variable V del SoftPLC si modo_manual=1."""
+    """Guarda/Escribe el valor manual en V.instrument_overrides si modo_manual=1."""
     # Mapa instrumento → atributo en V
     _TAG_MAP = {
         "FI-03":   "r_Q_gas_STD",
@@ -873,11 +1047,18 @@ def _apply_manual_override(instrumento, modo_manual, valor_manual):
         "NIV-AUX": "r_nivel_aux",
     }
     tag = _TAG_MAP.get(instrumento)
-    if tag and modo_manual and valor_manual is not None:
-        try:
-            setattr(V, tag, float(valor_manual))
-        except Exception:
-            pass
+    if tag:
+        if not hasattr(V, 'instrument_overrides'):
+            V.instrument_overrides = {}
+        if modo_manual and valor_manual is not None:
+            try:
+                V.instrument_overrides[tag] = float(valor_manual)
+            except Exception:
+                pass
+        else:
+            V.instrument_overrides.pop(tag, None)
+            if hasattr(V, tag):
+                setattr(V, tag, 0.0)
 
 
 

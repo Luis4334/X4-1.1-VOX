@@ -22,8 +22,8 @@ def p07_pid():
     global _log_counter
     V.t_P07_duracion.reset()
 
-    # Selector PV: LIT_001 vs DP_Simeflum según switch de posición
-    V.fb_SEL_03_pid.execute(V.r_LIT_001, V.r_DP_Simeflum, V.b_PID_POSIC_SW)
+    # Selector PV: LIT_001 vs r_nivel_aux según switch de posición
+    V.fb_SEL_03_pid.execute(V.r_LIT_001, V.r_nivel_aux, V.b_PID_POSIC_SW)
     pv_nivel = V.fb_SEL_03_pid.r_Out
 
     # PV del PID de gas: nivel o presión según b_Control_PID_Gas
