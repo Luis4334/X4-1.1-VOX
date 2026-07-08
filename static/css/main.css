@@ -876,3 +876,254 @@ html, body {
   letter-spacing: 0.5px;
 }
 
+/* ── Card ancha (ocupa 2 columnas) ─────────────────────── */
+.inst-card--wide {
+  grid-column: span 2;
+  min-height: unset;
+}
+@media (max-width: 768px) {
+  .inst-card--wide { grid-column: span 1; }
+}
+
+/* ── Sub-menú de selección manual ───────────────────────── */
+.inst-submenu {
+  margin-top: 16px;
+  padding: 14px 12px 10px;
+  background: rgba(15, 61, 92, 0.08);
+  border: 2px dashed #0f3d5c;
+  border-radius: 6px;
+}
+
+.inst-submenu-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #003366;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+/* ── Badge de modo activo ───────────────────────────────── */
+.inst-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inst-mode-badge {
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 4px;
+  padding: 2px 8px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.badge-green  { background: #1a5c38; color: #a7f3d0; border: 1px solid #27a766; }
+.badge-blue   { background: #1e3a5f; color: #bfdbfe; border: 1px solid #3b82f6; }
+.badge-purple { background: #3b1f6b; color: #e9d5ff; border: 1px solid #9b59b6; }
+.badge-orange { background: #7c3a0f; color: #fed7aa; border: 1px solid #e67e22; }
+.badge-teal   { background: #0d4040; color: #99f6e4; border: 1px solid #14b8a6; }
+.badge-gray   { background: #374151; color: #d1d5db; border: 1px solid #6b7280; }
+
+/* ── Variantes de color de botones activos ──────────────── */
+.retro-3d-btn.active-green {
+  background-color: #1a5c38;
+  border-top: 3px solid #4ade80;
+  border-left: 3px solid #4ade80;
+  border-right: 3px solid #0a3320;
+  border-bottom: 3px solid #0a3320;
+  box-shadow: 0 0 8px rgba(39, 167, 102, 0.5);
+}
+.retro-3d-btn.active-blue {
+  background-color: #1e3a5f;
+  border-top: 3px solid #60a5fa;
+  border-left: 3px solid #60a5fa;
+  border-right: 3px solid #0c1e38;
+  border-bottom: 3px solid #0c1e38;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+}
+.retro-3d-btn.active-purple {
+  background-color: #3b1f6b;
+  border-top: 3px solid #c084fc;
+  border-left: 3px solid #c084fc;
+  border-right: 3px solid #1e0d38;
+  border-bottom: 3px solid #1e0d38;
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.5);
+}
+.retro-3d-btn.active-orange {
+  background-color: #7c3a0f;
+  border-top: 3px solid #fb923c;
+  border-left: 3px solid #fb923c;
+  border-right: 3px solid #3d1c07;
+  border-bottom: 3px solid #3d1c07;
+  box-shadow: 0 0 8px rgba(249, 115, 22, 0.5);
+}
+.retro-3d-btn.active-teal {
+  background-color: #0d4040;
+  border-top: 3px solid #2dd4bf;
+  border-left: 3px solid #2dd4bf;
+  border-right: 3px solid #062020;
+  border-bottom: 3px solid #062020;
+  box-shadow: 0 0 8px rgba(20, 184, 166, 0.5);
+}
+
+/* ── Transición del sub-menú (Vue transition) ───────────── */
+.inst-fade-enter-active,
+.inst-fade-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.inst-fade-enter-from,
+.inst-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   INICIO PRUEBA PAGE — Clases de interfaz estilo HMI
+   ───────────────────────────────────────────────────────────── */
+
+.ip-box {
+  background: rgba(173, 216, 230, 0.10);
+  border: 2px solid #5e9cc4;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ip-box-header {
+  background: #7fb5d0;
+  color: #0a1826;
+  font-weight: 700;
+  font-size: 11px;
+  text-align: center;
+  padding: 5px 8px;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #5e9cc4;
+}
+.ip-box-body {
+  background: #b8d8ec;
+  color: #0a1826;
+}
+.ip-lbl {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #0a1826;
+  white-space: nowrap;
+}
+.ip-val-box {
+  display: inline-block;
+  min-width: 28px;
+  padding: 1px 6px;
+  background: #d6eefc;
+  border: 1px solid #7aa8c8;
+  border-radius: 2px;
+  font-family: 'Roboto Mono', 'Courier New', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0a1826;
+  text-align: center;
+}
+.ip-val-inline {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0a1826;
+}
+.ip-sep {
+  font-weight: 700;
+  color: #0a1826;
+  font-size: 12px;
+}
+.ip-th {
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0a1826;
+  text-align: left;
+  border-bottom: 1px solid #5e9cc4;
+}
+.ip-tr { border-bottom: 1px solid rgba(94,156,196,0.4); }
+.ip-tr:hover { background: rgba(255,255,255,0.12); }
+.ip-tr-indent .ip-td-lbl { padding-left: 24px !important; }
+.ip-td-lbl {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0a1826;
+  border-right: 1px solid #5e9cc4;
+  background: rgba(183, 221, 243, 0.5);
+  white-space: nowrap;
+}
+.ip-td-val {
+  padding: 4px 10px;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #0a1826;
+  background: #c6e5f7;
+}
+.ip-unit {
+  font-size: 10px;
+  color: #4a6a80;
+  margin-left: 5px;
+}
+.ip-btn-orange {
+  padding: 7px 14px;
+  background: #d4870a;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+  transition: filter 0.15s;
+}
+.ip-btn-orange:hover { filter: brightness(1.12); }
+.ip-btn-iniciar {
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #d4a00a 0%, #b8860a 100%);
+  color: #000;
+  font-size: 13px;
+  font-weight: 900;
+  border: 2px solid #e6b800;
+  border-radius: 4px;
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.2);
+  transition: filter 0.15s;
+}
+.ip-btn-iniciar:hover { filter: brightness(1.1); }
+.ip-btn-parar {
+  padding: 7px 14px;
+  background: #c47a00;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  width: 100%;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+  transition: filter 0.15s;
+}
+.ip-btn-parar:hover { filter: brightness(1.12); }
+.ip-btn-abortar {
+  padding: 7px 14px;
+  background: #b02020;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  width: 100%;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+  transition: filter 0.15s;
+}
+.ip-btn-abortar:hover { filter: brightness(1.12); }

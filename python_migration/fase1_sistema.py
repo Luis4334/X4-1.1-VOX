@@ -98,13 +98,17 @@ def save_retained_vars():
         'r_LEVEL_PID_SP', 'r_LEVEL_PID_03_KP', 'r_LEVEL_PID_03_KI', 'r_LEVEL_PID_03_KD',
         'r_PRESS_PID_SP', 'r_PRESS_PID_03_KP', 'r_PRESS_PID_03_KI', 'r_PRESS_PID_03_KD',
         # Proceso
-        'r_S_Oil_ref', 'r_PA', 'r_API_formacion_BM', 'r_API_1',
+        'r_S_Oil_ref', 'r_PA', 'r_API_formacion_BM', 'r_API_1', 'r_API_2',
         'r_falla_presion_gas', 'r_falla_presion_crudo',
         'r_D_Wedge', 'r_K_wedge', 'r_T_Yac_C',
+        'r_m', 'r_d_L', 'r_L', 'r_N_Tubos', 'r_AK_L', 'r_BK_L', 'r_CK_L',
+        'r_D_wedge_gas', 'r_h_wedge_gas', 'r_k_mp',
         # Switches
         'b_Sw_Wedge_Gas', 'b_Sw_Wedge_Gas_2', 'b_SW_DIL_MEDIDO_CALC',
         'b_SEL_LAMINAR', 'b_SEL_T_baja', 'b_habilitar_Loggers',
         'b_Control_PID_Gas', 'b_PID_POSIC_SW',
+        'b_sw_AM_Laminar_Wedge_x', 'b_sw_AM_Laminar_Wedge_y',
+        'b_sel_tipo_instrum_dil', 'b_AUTO_GAS_01', 'b_SEL_VLV_GAS_01',
     ]
     data = {}
     for key in keys_to_retain:

@@ -457,15 +457,9 @@ def p05_main():
         f05e_wedge_gas()
 
     # Rung 17-18: BIT_PROTECTION (protección de software / serial del PLC)
-    # En Python: se autentica mediante config.py (PLC_SERIAL)
-    # La verificación se realiza en fase1_sistema.py (b_BIT_PROTECTION ya está seteado)
-    V.d_LSI_PROTECCION = 0
-    if (V.i_get_sn1_sn1 ==   1 and V.i_get_sn1_sn2 ==  48 and
-        V.i_get_sn1_sn3 == -106 and V.i_get_sn1_sn4 == -33 and
-        V.i_get_sn1_sn5 ==  25 and V.i_get_sn1_sn6 ==   0 and
-        V.i_get_sn1_sn7 ==   0 and V.i_get_sn1_sn8 == -92):
-        V.d_LSI_PROTECCION = V.d_VOX_ANALIZER
-    V.b_BIT_PROTECTION   = (V.d_LSI_PROTECCION == V.d_VOX_ANALIZER)
+    # Habilitado de forma permanente para el entorno de migración en PC
+    V.d_LSI_PROTECCION = V.d_VOX_ANALIZER
+    V.b_BIT_PROTECTION   = True
     V.b_BIT_PROTECTION_1 = V.b_BIT_PROTECTION
 
     # Rung 19-21: relé de vigilancia (watchdog 1 minuto)

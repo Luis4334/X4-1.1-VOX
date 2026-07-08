@@ -95,6 +95,8 @@ _HART_LATEST_RESULTS = {
     }
     for i in range(15)
 }
+_HART_GLOBAL = {"last_success": None, "last_error": "", "last_attempt": 0.0}
+
 _HART_POLL_INTERVAL = 3.0   # segundos entre lecturas HART
 
 def _hart_background_poller():
@@ -182,12 +184,20 @@ def _hart_background_poller():
 
                 with _HART_CACHE_LOCK:
                     _HART_LATEST_RESULTS[idx] = result
+                    _HART_GLOBAL["last_attempt"] = time.monotonic()
+                    if result.get("connected"):
+                        _HART_GLOBAL["last_success"] = time.monotonic()
+                        _HART_GLOBAL["last_error"] = ""
+                    elif result.get("error") and "Deshabilitado" not in result.get("error", ""):
+                        _HART_GLOBAL["last_error"] = result["error"]
 
                 # Retardo entre lecturas para no saturar el bus HART
                 time.sleep(0.5)
 
         except Exception as ex:
             hart_logger.error(f"[Poller] Error inesperado en loop HART: {ex}")
+            with _HART_CACHE_LOCK:
+                _HART_GLOBAL["last_error"] = f"Poller error: {ex}"
 
         time.sleep(_HART_POLL_INTERVAL)
 
@@ -404,7 +414,33 @@ def websocket_updater():
                 "GOR":         round(V.r_GOR,                 2),
                 "WC_sc":       round(V.r_WC_sc,               3),
                 "GVF":         round(V.r_GVF,                 3),
+                "b_Laminar":   bool(V.b_Laminar),
+                "b_Wedge":     bool(V.b_Wedge),
+                "i_Tipo_medidor": int(V.i_Tipo_medidor),
                 "timestamp":   datetime.now().strftime("%H:%M:%S"),
+                # ── Estado de Prueba ──────────────────────────────────
+                "b_Prueba_en_Progreso": bool(getattr(V, "b_Prueba_en_Progreso", False)),
+                "b_Parada_en_Progreso": bool(getattr(V, "b_Parada_en_Progreso", False)),
+                "ad_TIEMPO_inicio_prueba": list(getattr(V, "ad_TIEMPO_inicio_prueba", [0]*8)),
+                "ad_TIEMPO_prueba":        list(getattr(V, "ad_TIEMPO_prueba",        [0]*8)),
+                # ── Tags Inicio Prueba (Pantalla) ─────────────────────
+                "i_duracion_prueba_horas": int(getattr(V, "i_duracion_prueba_horas", 0)),
+                "as_Codigo_pozo_16":  str(getattr(V, "as_Codigo_pozo_16",  "")),
+                "as_Codigo_pozo_17":  str(getattr(V, "as_Codigo_pozo_17",  "")),
+                "as_Codigo_pozo_03":  str(getattr(V, "as_Codigo_pozo_03",  "")),
+                "as_Codigo_pozo_06":  str(getattr(V, "as_Codigo_pozo_06",  "")),
+                "as_Codigo_pozo_08":  str(getattr(V, "as_Codigo_pozo_08",  "")),
+                "as_Codigo_pozo_18":  str(getattr(V, "as_Codigo_pozo_18",  "")),
+                "as_Codigo_pozo_19":  str(getattr(V, "as_Codigo_pozo_19",  "")),
+                "r_T_Yac_C":          round(float(getattr(V, "r_T_Yac_C",         0.0)), 3),
+                "r_API_formacion_BM":  round(float(getattr(V, "r_API_formacion_BM", 0.0)), 3),
+                "r_API_2":             round(float(getattr(V, "r_API_2",            0.0)), 3),
+                "r_API_1":             round(float(getattr(V, "r_API_1",            0.0)), 3),
+                "r_caudal_dil_BM":     round(float(getattr(V, "r_caudal_dil_BM",   0.0)), 3),
+                "i_posicion_combo_box_1": int(getattr(V, "i_posicion_combo_box_1", 0)),
+                "i_posicion_combo_box_2": int(getattr(V, "i_posicion_combo_box_2", 0)),
+                "ar_TIEMPO_prueba_TOTAL": list(getattr(V, "ar_TIEMPO_prueba_TOTAL", [0]*8)),
+                "ad_IHM_HORA_inicio":     list(getattr(V, "ad_IHM_HORA_inicio",    [0]*8)),
             }
 
             # ── Estado de los lazos PID del SoftPLC ──
@@ -440,6 +476,11 @@ def websocket_updater():
                 "b_Sw_Wedge_Gas_2": bool(V.b_Sw_Wedge_Gas_2),
                 "b_SEL_LAMINAR": bool(V.b_SEL_LAMINAR),
                 "b_SEL_T_baja": bool(V.b_SEL_T_baja),
+                "b_sw_AM_Laminar_Wedge_x": bool(V.b_sw_AM_Laminar_Wedge_x),
+                "b_sw_AM_Laminar_Wedge_y": bool(V.b_sw_AM_Laminar_Wedge_y),
+                "b_sel_tipo_instrum_dil": bool(V.b_sel_tipo_instrum_dil),
+                "b_AUTO_GAS_01": bool(V.b_AUTO_GAS_01),
+                "b_SEL_VLV_GAS_01": bool(V.b_SEL_VLV_GAS_01),
             }
 
             # ── Estado del Motor PLC ──
@@ -511,6 +552,35 @@ def api_status():
         "ok":  True,
         "ts":  datetime.now().isoformat(),
         "plc": plc_engine.get_status(),
+    })
+
+
+@app.route("/api/debug_state")
+def api_debug_state():
+    return jsonify({
+        "b_BIT_PROTECTION": bool(V.b_BIT_PROTECTION),
+        "b_Laminar": bool(V.b_Laminar),
+        "b_Wedge": bool(V.b_Wedge),
+        "i_Tipo_medidor": int(V.i_Tipo_medidor),
+        "r_miu_Oil": float(V.r_miu_Oil),
+        "r_v_oil_medida": float(V.r_v_oil_medida),
+        "r_v_oil_calc": float(V.r_v_oil_calc),
+        "r_Q_Mezcla_L": float(V.r_Q_Mezcla_L),
+        "r_Q_Mezcla_W": float(V.r_Q_Mezcla_W),
+        "b_sw_AM_Laminar_Wedge_x": bool(V.b_sw_AM_Laminar_Wedge_x),
+        "b_sw_AM_Laminar_Wedge_y": bool(V.b_sw_AM_Laminar_Wedge_y),
+        "b_SEL_LAMINAR": bool(V.b_SEL_LAMINAR),
+        "r_DP_L": float(V.r_DP_L),
+        "r_DP_W": float(V.r_DP_W),
+        "r_RE_W": float(V.r_RE_W) if hasattr(V, 'r_RE_W') else 0.0,
+        "r_RE_L": float(V.r_RE_L) if hasattr(V, 'r_RE_L') else 0.0,
+        "r_PDT_01": float(V.r_PDT_01) if hasattr(V, 'r_PDT_01') else 0.0,
+        "r_PDT_02": float(V.r_PDT_02) if hasattr(V, 'r_PDT_02') else 0.0,
+        "r_PDT_03": float(V.r_PDT_03) if hasattr(V, 'r_PDT_03') else 0.0,
+        "r_P_Oil": float(V.r_P_Oil) if hasattr(V, 'r_P_Oil') else 0.0,
+        "r_T_Oil_C": float(V.r_T_Oil_C) if hasattr(V, 'r_T_Oil_C') else 0.0,
+        "b_Sel_T_baja": bool(V.b_Sel_T_baja) if hasattr(V, 'b_Sel_T_baja') else False,
+        "r_MAX_MIN_TRANSBAJA": float(V.r_MAX_MIN_TRANSBAJA) if hasattr(V, 'r_MAX_MIN_TRANSBAJA') else 0.5,
     })
 
 
@@ -662,12 +732,36 @@ def instrument_selection():
         if "b_SEL_T_baja" in d:
             V.b_SEL_T_baja = bool(d["b_SEL_T_baja"])
             V.b_Sel_T_baja = bool(d["b_SEL_T_baja"])
+        if "b_sw_AM_Laminar_Wedge_x" in d:
+            V.b_sw_AM_Laminar_Wedge_x = bool(d["b_sw_AM_Laminar_Wedge_x"])
+        if "b_sw_AM_Laminar_Wedge_y" in d:
+            V.b_sw_AM_Laminar_Wedge_y = bool(d["b_sw_AM_Laminar_Wedge_y"])
+        if "b_sel_tipo_instrum_dil" in d:
+            V.b_sel_tipo_instrum_dil = bool(d["b_sel_tipo_instrum_dil"])
+        if "b_AUTO_GAS_01" in d:
+            V.b_AUTO_GAS_01 = bool(d["b_AUTO_GAS_01"])
+        if "b_SEL_VLV_GAS_01" in d:
+            V.b_SEL_VLV_GAS_01 = bool(d["b_SEL_VLV_GAS_01"])
         
         try:
             from fase1_sistema import save_retained_vars
             save_retained_vars()
         except Exception as e:
             logger.error(f"Error guardando variables retenidas en POST /api/instrument_selection: {e}")
+            
+        try:
+            db_exec("""
+                UPDATE instrument_selection_config 
+                SET b_Control_PID_Gas=%s, b_PID_POSIC_SW=%s, b_Sw_Wedge_Gas=%s, 
+                    b_SW_DIL_MEDIDO_CALC=%s, b_Sw_Wedge_Gas_2=%s, b_SEL_LAMINAR=%s, 
+                    b_SEL_T_baja=%s, b_sw_AM_Laminar_Wedge_x=%s, b_sw_AM_Laminar_Wedge_y=%s,
+                    b_sel_tipo_instrum_dil=%s, b_AUTO_GAS_01=%s, b_SEL_VLV_GAS_01=%s
+                WHERE id=1
+            """, (V.b_Control_PID_Gas, V.b_PID_POSIC_SW, V.b_Sw_Wedge_Gas, V.b_SW_DIL_MEDIDO_CALC,
+                  V.b_Sw_Wedge_Gas_2, V.b_SEL_LAMINAR, V.b_SEL_T_baja, V.b_sw_AM_Laminar_Wedge_x, V.b_sw_AM_Laminar_Wedge_y,
+                  V.b_sel_tipo_instrum_dil, V.b_AUTO_GAS_01, V.b_SEL_VLV_GAS_01), fetch=False)
+        except Exception as e:
+            logger.error(f"Error guardando en BD (instrument_selection_config): {e}")
             
         return jsonify({"ok": True})
         
@@ -679,36 +773,11 @@ def instrument_selection():
         "b_Sw_Wedge_Gas_2": bool(V.b_Sw_Wedge_Gas_2),
         "b_SEL_LAMINAR": bool(V.b_SEL_LAMINAR),
         "b_SEL_T_baja": bool(V.b_SEL_T_baja),
-    })
-
-
-@app.route("/api/debug_V", methods=["GET"])
-def debug_V():
-    import sys
-    import fase2_entradas as _f2
-    import scan_engine as _se
-    import comunicacion_hart as _ch
-    
-    gv_mod = sys.modules.get('global_vars')
-    pm_gv_mod = sys.modules.get('python_migration.global_vars')
-    
-    return jsonify({
-        "app_V_id": id(V),
-        "app_V_r_LIT_001": getattr(V, 'r_LIT_001', None),
-        "app_V_overrides": getattr(V, 'instrument_overrides', None),
-        
-        "f2_V_id": id(_f2.V) if hasattr(_f2, 'V') else None,
-        "f2_V_r_LIT_001": getattr(_f2.V, 'r_LIT_001', None) if hasattr(_f2, 'V') else None,
-        "f2_V_overrides": getattr(_f2.V, 'instrument_overrides', None) if hasattr(_f2, 'V') else None,
-        
-        "se_V_id": id(_se.V) if hasattr(_se, 'V') else None,
-        "ch_V_id": id(_ch._get_V()) if hasattr(_ch, '_get_V') and _ch._get_V() is not None else None,
-        
-        "global_vars_in_sys_modules": gv_mod is not None,
-        "pm_global_vars_in_sys_modules": pm_gv_mod is not None,
-        
-        "global_vars_V_id": id(gv_mod.V) if gv_mod else None,
-        "pm_global_vars_V_id": id(pm_gv_mod.V) if pm_gv_mod else None,
+        "b_sw_AM_Laminar_Wedge_x": bool(V.b_sw_AM_Laminar_Wedge_x),
+        "b_sw_AM_Laminar_Wedge_y": bool(V.b_sw_AM_Laminar_Wedge_y),
+        "b_sel_tipo_instrum_dil": bool(V.b_sel_tipo_instrum_dil),
+        "b_AUTO_GAS_01": bool(V.b_AUTO_GAS_01),
+        "b_SEL_VLV_GAS_01": bool(V.b_SEL_VLV_GAS_01),
     })
 
 
@@ -718,120 +787,6 @@ def toggle_simulacion():
     d = request.get_json() or {}
     V.b_simular_ai = bool(d.get("simular", not V.b_simular_ai))
     return jsonify({"b_simular_ai": V.b_simular_ai})
-
-
-# ─────────────────────────────────────────────────────────────
-# Endpoints de Prueba / Diagnóstico PID
-# ─────────────────────────────────────────────────────────────
-
-@app.route("/api/test/pid_inject", methods=["POST"])
-def pid_test_inject():
-    """Inyecta valores de PV y configuración de PID directamente en V para pruebas.
-    Body JSON esperado:
-      { "nivel": 80.0, "presion": 11.9,
-        "sp_nivel": 50.0, "sp_presion": 70.0,
-        "kp_nivel": 1.0,  "ki_nivel": 0.1,
-        "kp_presion": 1.0, "ki_presion": 0.1,
-        "habilitar_lazos": true }
-    Todos los campos son opcionales.
-    """
-    d = request.get_json() or {}
-    changes = {}
-
-    # Inyectar PV de nivel
-    if "nivel" in d:
-        V.r_LIT_001 = float(d["nivel"])
-        changes["r_LIT_001"] = V.r_LIT_001
-
-    # Inyectar PV de presión
-    if "presion" in d:
-        V.r_P_Gas = float(d["presion"])
-        changes["r_P_Gas"] = V.r_P_Gas
-
-    # Setpoints
-    if "sp_nivel" in d:
-        V.r_LEVEL_PID_SP = float(d["sp_nivel"])
-        changes["r_LEVEL_PID_SP"] = V.r_LEVEL_PID_SP
-    if "sp_presion" in d:
-        V.r_PRESS_PID_SP = float(d["sp_presion"])
-        changes["r_PRESS_PID_SP"] = V.r_PRESS_PID_SP
-
-    # Ganancias PID nivel
-    if "kp_nivel" in d:
-        V.r_LEVEL_PID_03_KP = float(d["kp_nivel"])
-        changes["r_LEVEL_PID_03_KP"] = V.r_LEVEL_PID_03_KP
-    if "ki_nivel" in d:
-        V.r_LEVEL_PID_03_KI = float(d["ki_nivel"])
-        changes["r_LEVEL_PID_03_KI"] = V.r_LEVEL_PID_03_KI
-
-    # Ganancias PID presión
-    if "kp_presion" in d:
-        V.r_PRESS_PID_03_KP = float(d["kp_presion"])
-        changes["r_PRESS_PID_03_KP"] = V.r_PRESS_PID_03_KP
-    if "ki_presion" in d:
-        V.r_PRESS_PID_03_KI = float(d["ki_presion"])
-        changes["r_PRESS_PID_03_KI"] = V.r_PRESS_PID_03_KI
-
-    # Habilitar lazos (usar pushbutton para que fase4 no lo sobrescriba)
-    if "habilitar_lazos" in d:
-        if bool(d["habilitar_lazos"]):
-            V.b_PB_HABILITA_PID = True
-            V.b_DESHABILITA_PID = False
-        else:
-            V.b_PB_DESHABILITA_PID = True
-            V.b_DESHABILITA_PID = True
-        changes["lazos_habilitados"] = not V.b_DESHABILITA_PID
-
-    # Modo Auto del PID (False = Auto, True = Manual)
-    if "nivel_auto" in d:
-        V.b_MAN_LC = not bool(d["nivel_auto"])
-        changes["b_MAN_LC"] = V.b_MAN_LC
-    if "presion_auto" in d:
-        V.b_MAN_PC = not bool(d["presion_auto"])
-        changes["b_MAN_PC"] = V.b_MAN_PC
-
-    return jsonify({"ok": True, "changes": changes})
-
-
-@app.route("/api/test/pid_status", methods=["GET"])
-def pid_test_status():
-    """Devuelve el estado completo del PID para monitoreo durante pruebas."""
-    import time as _time
-    now = _time.monotonic()
-    return jsonify({
-        # Nivel (LIC-01 / LCV-01)
-        "nivel_PV":    round(V.r_LIT_001, 2),
-        "nivel_SP":    round(V.r_LEVEL_PID_SP, 2),
-        "nivel_CV":    round(getattr(V, "fb_LEVEL_PID_r_CVEU", 0.0), 2),
-        "nivel_CV_internal": round(V.fb_LEVEL_PID.r_CVEU, 4),
-        "nivel_CVOper": round(V.r_LEVEL_PID_03_CVOper, 2),
-        "nivel_CVOverride": round(V.r_LEVEL_PID_03_CVOverride, 2),
-        "nivel_FI": round(V.r_LEVEL_PID_03_Factor_I, 4),
-        "nivel_FI_out": round(V.fb_LEVEL_PID.r_FI_out, 4),
-        "nivel_last_exec_ago": round(now - V.fb_LEVEL_PID._last_exec, 2),
-        "nivel_modo":  "Manual" if V.b_MAN_LC else "Auto",
-        "nivel_Kp":    round(V.r_LEVEL_PID_03_KP, 4),
-        "nivel_Ki":    round(V.r_LEVEL_PID_03_KI, 4),
-        "nivel_Kd":    round(V.r_LEVEL_PID_03_KD, 4),
-        # Presión (PIC-01 / PCV-01)
-        "presion_PV":  round(V.r_P_Gas, 2),
-        "presion_SP":  round(V.r_PRESS_PID_SP, 2),
-        "presion_CV":  round(getattr(V, "fb_PRESS_PID_r_CVEU", 0.0), 2),
-        "presion_CV_internal": round(V.fb_PRESS_PID.r_CVEU, 4),
-        "presion_CVOper": round(V.r_PRESS_PID_03_CVOper, 2),
-        "presion_CVOverride": round(V.r_PRESS_PID_03_CVOverride, 2),
-        "presion_FI_out": round(V.fb_PRESS_PID.r_FI_out, 4),
-        "presion_last_exec_ago": round(now - V.fb_PRESS_PID._last_exec, 2),
-        "presion_modo":"Manual" if V.b_MAN_PC else "Auto",
-        "presion_Kp":  round(V.r_PRESS_PID_03_KP, 4),
-        "presion_Ki":  round(V.r_PRESS_PID_03_KI, 4),
-        "presion_Kd":  round(V.r_PRESS_PID_03_KD, 4),
-        # Estado general
-        "lazos_habilitados": not V.b_DESHABILITA_PID,
-        "b_DESHABILITA_PID": V.b_DESHABILITA_PID,
-        "b_PB_HABILITA_PID": V.b_PB_HABILITA_PID,
-        "scan_ms":     plc_engine.scan_time_ms,
-    })
 
 
 
@@ -896,7 +851,266 @@ def set_calibracion():
                 updated.append(key)
             except (TypeError, ValueError):
                 pass
+    if updated:
+        try:
+            from fase1_sistema import save_retained_vars
+            save_retained_vars()
+        except Exception as e:
+            logger.error(f"Error saving calibration params to disk: {e}")
     return jsonify({"ok": True, "updated": updated})
+
+
+# ─────────────────────────────────────────────────────────────
+# Propiedades Físicas del Fluido
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/propiedades", methods=["GET"])
+def get_propiedades():
+    return jsonify({
+        "densidadRefDiluente": float(getattr(V, "r_d_D_ref",    0.0)),
+        "densidadRefCrudo":    float(getattr(V, "r_d_Oil_ref",  0.0)),
+        "gravEspGas":          float(getattr(V, "r_yg",          0.0)),
+        "presionAtm":          float(getattr(V, "r_PA",          0.0)),
+        "constanteGas":        float(getattr(V, "r_R_gas",       8.314)),
+        "presionCriticaGas":   float(getattr(V, "r_Pc_Gas",      0.0)),
+        "A": float(getattr(V, "r_A_ds",    0.0)),
+        "B": float(getattr(V, "r_B_ds",    0.0)),
+        "C": float(getattr(V, "r_C_ds",    0.0)),
+        "D": float(getattr(V, "r_D_ds",    0.0)),
+        "E": float(getattr(V, "r_E_ds",    1.0)),
+        "Z": float(getattr(V, "r_Z_Gas_P", 1.0)),
+        "densidadGas": float(getattr(V, "r_d_Gas",   0.0)),
+        "laminar":     float(getattr(V, "r_RE_L_M",  0.0)),
+        "wedge":       float(getattr(V, "r_RE_W_M",  0.0)),
+    })
+
+
+@app.route("/api/propiedades", methods=["POST"])
+def set_propiedades():
+    d = request.get_json() or {}
+    MAP = {
+        "densidadRefDiluente": "r_d_D_ref",
+        "densidadRefCrudo":    "r_d_Oil_ref",
+        "gravEspGas":          "r_yg",
+        "presionAtm":          "r_PA",
+        "constanteGas":        "r_R_gas",
+        "presionCriticaGas":   "r_Pc_Gas",
+        "A": "r_A_ds", "B": "r_B_ds", "C": "r_C_ds",
+        "D": "r_D_ds", "E": "r_E_ds",
+        "densidadGas": "r_d_Gas",
+        "laminar": "r_RE_L_M",
+        "wedge":    "r_RE_W_M",
+    }
+    updated = []
+    for fe_key, v_key in MAP.items():
+        if fe_key in d and hasattr(V, v_key):
+            try:
+                setattr(V, v_key, float(d[fe_key]))
+                updated.append(v_key)
+            except (TypeError, ValueError):
+                pass
+
+    # Sincronizar variables físicas dependientes para evitar sobrescritura en el ciclo del PLC
+    if "densidadRefDiluente" in d:
+        try:
+            dens_dil = float(d["densidadRefDiluente"])
+            if dens_dil > 0:
+                s_d_ref = dens_dil / getattr(V, "r_d_W_ref", 0.9990121)
+                api_1 = (141.5 / s_d_ref) - 131.5
+                setattr(V, "r_S_D_ref", s_d_ref)
+                setattr(V, "r_API_1", api_1)
+                updated.append("r_S_D_ref")
+                updated.append("r_API_1")
+        except (TypeError, ValueError):
+            pass
+
+    if "densidadRefCrudo" in d:
+        try:
+            dens_oil = float(d["densidadRefCrudo"])
+            if dens_oil > 0:
+                s_oil_ref = dens_oil / 0.9990121
+                api_2 = (141.5 / s_oil_ref) - 131.5
+                setattr(V, "r_S_Oil_ref", s_oil_ref)
+                setattr(V, "r_API_2", api_2)
+                updated.append("r_S_Oil_ref")
+                updated.append("r_API_2")
+        except (TypeError, ValueError):
+            pass
+
+    if updated:
+        # Eliminar posibles duplicados manteniendo el orden
+        seen = set()
+        updated = [x for x in updated if not (x in seen or seen.add(x))]
+        try:
+            from fase1_sistema import save_retained_vars
+            save_retained_vars()
+        except Exception as e:
+            logger.error(f"Error saving properties: {e}")
+        for key in updated:
+            if hasattr(V, key):
+                val = float(getattr(V, key))
+                try:
+                    db_exec(
+                        "INSERT INTO propiedades_config (parametro, valor) VALUES (%s, %s) "
+                        "ON DUPLICATE KEY UPDATE valor=%s",
+                        (key, val, val), fetch=False
+                    )
+                except Exception as e:
+                    logger.error(f"Error guardando propiedad {key} en BD: {e}")
+    return jsonify({"ok": True, "updated": updated})
+
+
+# ─────────────────────────────────────────────────────────────
+# Selección de Fórmulas de Cálculo
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/formulas", methods=["GET"])
+def get_formulas():
+    return jsonify({
+        "b_IHM_PB_miu":  int(bool(getattr(V, "b_IHM_PB_miu",  False))),
+        "b_externa":     int(bool(getattr(V, "b_externa",     False))),
+        "b_SEL_LAMINAR": int(bool(getattr(V, "b_SEL_LAMINAR", False))),
+        "b_PB_PVT":      int(bool(getattr(V, "b_PB_PVT",      False))),
+    })
+
+
+@app.route("/api/formulas", methods=["POST"])
+def set_formulas():
+    d = request.get_json() or {}
+    updated = []
+    for key in ["b_IHM_PB_miu", "b_externa", "b_SEL_LAMINAR", "b_PB_PVT"]:
+        if key in d:
+            try:
+                setattr(V, key, bool(int(d[key])))
+                updated.append(key)
+            except (TypeError, ValueError):
+                pass
+    if updated:
+        try:
+            from fase1_sistema import save_retained_vars
+            save_retained_vars()
+        except Exception as e:
+            logger.error(f"Error saving formulas: {e}")
+    return jsonify({"ok": True, "updated": updated})
+
+
+# ─────────────────────────────────────────────────────────────
+# Control de Prueba
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/plc/prueba/iniciar", methods=["POST"])
+def iniciar_prueba():
+    d = request.get_json() or {}
+    V.b_PB_inicio_prueba  = True
+    V.b_PB_parada_prueba  = False
+    V.b_IHM_Abortar_Prueba = False
+    if "codigo_pozo" in d:
+        if hasattr(V, 'as_Codigo_pozo_16'):
+            V.as_Codigo_pozo_16 = str(d["codigo_pozo"])
+    if "duracion_horas" in d:
+        try:
+            horas = float(d["duracion_horas"])
+            if hasattr(V, 'ad_IHM_TIEMPO_prueba'):
+                V.ad_IHM_TIEMPO_prueba[3] = horas
+                V.ad_IHM_TIEMPO_prueba[2] = horas * 3600.0
+        except Exception:
+            pass
+    return jsonify({
+        "ok": True,
+        "b_Prueba_en_Progreso": bool(getattr(V, "b_Prueba_en_Progreso", False)),
+    })
+
+
+@app.route("/api/plc/prueba/parar", methods=["POST"])
+def parar_prueba():
+    V.b_PB_parada_prueba = True
+    return jsonify({"ok": True})
+
+
+@app.route("/api/plc/prueba/abortar", methods=["POST"])
+def abortar_prueba():
+    V.b_IHM_Abortar_Prueba = True
+    if hasattr(V, 'b_Prueba_en_Progreso'):
+        V.b_Prueba_en_Progreso = False
+    V.b_PB_inicio_prueba = False
+    return jsonify({"ok": True})
+
+
+@app.route("/api/plc/prueba/cargar_datos", methods=["POST"])
+def cargar_datos_prueba():
+    """Escribe los datos del formulario 'Cargar Datos Prueba' al objeto V del SoftPLC."""
+    d = request.get_json() or {}
+    updated = []
+
+    # ── Cadenas de texto (as_Codigo_pozo_XX) ────────────────
+    str_map = {
+        "lugar":   "as_Codigo_pozo_17",
+        "pozo":    "as_Codigo_pozo_03",
+        "metodo":  "as_Codigo_pozo_06",
+        "rpm":     "as_Codigo_pozo_08",
+        "inyeccion": "as_Codigo_pozo_18",
+    }
+    for key, tag in str_map.items():
+        if key in d and hasattr(V, tag):
+            setattr(V, tag, str(d[key]))
+            updated.append(tag)
+
+    # ── Valores flotantes ────────────────────────────────────
+    float_map = {
+        "tempYac":       "r_T_Yac_C",
+        "apiFormacion":  "r_API_formacion_BM",
+        "apiMezcla":     "r_API_2",
+        "apiDiluente":   "r_API_1",
+        "caudalDiluente":"r_caudal_dil_BM",
+    }
+    for key, tag in float_map.items():
+        if key in d and hasattr(V, tag):
+            try:
+                setattr(V, tag, float(d[key]))
+                updated.append(tag)
+            except (TypeError, ValueError):
+                pass
+
+    # ── Enteros (duración y combo boxes) ────────────────────
+    if "duracionHoras" in d and hasattr(V, "i_duracion_prueba_horas"):
+        try:
+            V.i_duracion_prueba_horas = int(float(d["duracionHoras"]))
+            updated.append("i_duracion_prueba_horas")
+        except (TypeError, ValueError):
+            pass
+
+    if "comboMetodo" in d and hasattr(V, "i_posicion_combo_box_1"):
+        try:
+            V.i_posicion_combo_box_1 = int(d["comboMetodo"])
+            updated.append("i_posicion_combo_box_1")
+        except (TypeError, ValueError):
+            pass
+
+    if "comboInyeccion" in d and hasattr(V, "i_posicion_combo_box_2"):
+        try:
+            V.i_posicion_combo_box_2 = int(d["comboInyeccion"])
+            updated.append("i_posicion_combo_box_2")
+        except (TypeError, ValueError):
+            pass
+
+    # ── Fecha/Hora de inicio (ad_IHM_HORA_inicio) ───────────
+    # d["fechaDD"], d["fechaMM"], d["fechaAAAA"], d["horaHH"], d["horaMM"]
+    if hasattr(V, "ad_IHM_HORA_inicio"):
+        try:
+            arr = list(getattr(V, "ad_IHM_HORA_inicio", [0]*8))
+            if "fechaDD"   in d: arr[2] = int(d["fechaDD"])
+            if "fechaMM"   in d: arr[1] = int(d["fechaMM"])
+            if "fechaAAAA" in d: arr[0] = int(d["fechaAAAA"])
+            if "horaHH"    in d: arr[3] = int(d["horaHH"])
+            if "horaMM"    in d: arr[4] = int(d["horaMM"])
+            V.ad_IHM_HORA_inicio = arr
+            updated.append("ad_IHM_HORA_inicio")
+        except (TypeError, ValueError, IndexError):
+            pass
+
+    return jsonify({"ok": True, "updated": updated})
+
+
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1424,13 +1638,35 @@ def post_hart_reboot():
 
 @app.route("/api/hart/live", methods=["GET"])
 def get_hart_live():
-    """Devuelve el último snapshot de los 15 canales HART desde la caché (no bloquea)."""
+    """Devuelve el estado global y canales HART desde la caché (no bloquea)."""
+    import time as _time
+    from datetime import datetime
     with _HART_CACHE_LOCK:
         results_list = [
             {"channel_idx": idx, **res}
             for idx, res in sorted(_HART_LATEST_RESULTS.items())
         ]
-    return jsonify(results_list)
+        ls = _HART_GLOBAL["last_success"]
+        data_age_s = (_time.monotonic() - ls) if ls else 0.0
+        stale = data_age_s > 10.0 if ls else True
+        connected = (ls is not None) and not stale
+        cooldown_left = max(0.0, _HART_POLL_INTERVAL - (_time.monotonic() - _HART_GLOBAL["last_attempt"]))
+        last_error = _HART_GLOBAL["last_error"]
+        
+    return jsonify({
+        "connected": connected,
+        "stale": stale,
+        "data_age_s": round(data_age_s, 1),
+        "last_error": last_error,
+        "retry_in_s": round(cooldown_left, 1),
+        "ts": datetime.now().strftime("%H:%M:%S"),
+        "mode": HART_CONFIG.get("mode", "tcp"),
+        "ip": HART_CONFIG.get("ip", "192.168.255.1"),
+        "port": HART_CONFIG.get("port", 502),
+        "com_port": HART_CONFIG.get("com_port", "COM3"),
+        "baudrate": HART_CONFIG.get("baudrate", 9600),
+        "channels": results_list
+    })
 
 @app.route("/api/hart/config/channels", methods=["GET"])
 def get_hart_channels_config():
