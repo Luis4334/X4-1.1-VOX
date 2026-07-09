@@ -668,8 +668,13 @@ class GlobalVars:
         self.i_indice_prueba = 0
         
         # --- Banderas de Control de Pruebas ---
+        self.b_PB_inicio_prueba     = False
         self.b_PB_parada_prueba     = False
         self.b_PB_parada_prueba_ant = False
+        self.b_IHM_Validar_Prueba   = False
+        self.b_IHM_Abortar_Prueba   = False
+        self.b_Prueba_en_Progreso   = False
+        self.b_Parada_en_Progreso   = False
         self.b_Bit_5                = False  # Bit de estado de parada
         self.b_inicio_prueba        = False
         self.b_prueba_en_progreso   = False
@@ -844,7 +849,7 @@ class GlobalVars:
         self.d_vacio = 0
         self.d_LSI_PROTECCION = 0
         self.d_VOX_ANALIZER = -1071649436
-        self.d_T_EQUIPO = 0
+        self.d_T_EQUIPO = 1
         self.d_CONTROLLER_STATUS = 12640
 
         # ═══════════════════════════════════════════════════════════════

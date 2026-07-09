@@ -31,10 +31,10 @@ const App = {
       </div>
       <!-- Indicador de Prueba en Progreso -->
       <div v-if="proc.b_Prueba_en_Progreso"
-           class="flex items-center gap-1.5 px-3 py-1 bg-red-600/30 border border-red-500 rounded
-                  text-red-500 text-[10px] font-bold uppercase tracking-wider animate-pulse select-none">
-        <span>●</span>
-        <span>Prueba Activa</span>
+           class="flex items-center gap-1.5 px-4 py-1.5 bg-red-600/35 border-2 border-red-500 rounded-lg
+                  text-red-500 text-xs font-black uppercase tracking-widest animate-pulse select-none shadow-[0_0_12px_rgba(239,68,68,0.35)]">
+        <span>🔴</span>
+        <span>Prueba en Proceso</span>
       </div>
       <div class="flex items-center gap-4">
         <div class="hdr-clock">{{ clock }}</div>
@@ -438,10 +438,13 @@ const ProcesoPage = {
         </div>
       </div>
 
-      <!-- TAG LAMINAR A (Gas) -->
-      <div class="pid-tag laminar-a-tag" :class="alarmCls('PDI_01')">
-        <div class="pt-name">Laminar A</div>
-        <div class="pt-val">{{ fmt(proc.PDI_01,2) }}<span class="pt-unit"> inH2O</span></div>
+      <!-- TAG A %GAS-01 (Movido a posición superior) -->
+      <div class="pid-tag laminar-a-tag warn-tag">
+        <div class="pt-name">A %GAS-01</div>
+        <div class="pt-val">
+          <span v-if="proc.r_GVoidF > 20" class="pt-alarm-icon">🔥</span>
+          {{ fmt(proc.r_GVoidF,1) }}<span class="pt-unit"> %</span>
+        </div>
       </div>
 
       <!-- TAG WEDGE (Líquido) -->
@@ -451,7 +454,7 @@ const ProcesoPage = {
         <div class="pt-val pt-secondary">{{ fmt(proc.r_P_Oil,2) }}<span class="pt-unit"> PSIG</span></div>
       </div>
 
-      <!-- ════ FILA SUPERIOR: FIT-03 | PIT-01 | TIT-01 ════ -->
+      <!-- ════ FILA SUPERIOR: FIT-03 | PIT-01 | TIT-02 ════ -->
       <div class="pid-tag-group top-row">
         <div class="pid-tag" :class="alarmCls('r_Q_gas_STD')">
           <div class="pt-name">FIT-03</div>
@@ -461,14 +464,6 @@ const ProcesoPage = {
           <div class="pt-name">PIT-01</div>
           <div class="pt-val">{{ fmt(proc.r_P_Gas,2) }}<span class="pt-unit"> PSIG</span></div>
         </div>
-        <div class="pid-tag" :class="alarmCls('r_T_Oil_C')">
-          <div class="pt-name">TIT-01</div>
-          <div class="pt-val">{{ fmt(proc.r_T_Oil_C,2) }}<span class="pt-unit"> °C</span></div>
-        </div>
-      </div>
-
-      <!-- ════ FILA INFERIOR: TIT-02 | %GAS-01 | VI-01 ════ -->
-      <div class="pid-tag-group bot-row">
         <div class="pid-tag" :class="alarmCls('r_T_Gas')">
           <div class="pt-name">TIT-02</div>
           <div class="pt-val">
@@ -477,12 +472,17 @@ const ProcesoPage = {
           </div>
           <div class="pt-val pt-secondary">{{ fmt(proc.r_T_oil_F,2) }}<span class="pt-unit"> °F</span></div>
         </div>
-        <div class="pid-tag warn-tag">
-          <div class="pt-name">A %GAS-01</div>
-          <div class="pt-val">
-            <span v-if="proc.r_GVoidF > 20" class="pt-alarm-icon">🔥</span>
-            {{ fmt(proc.r_GVoidF,1) }}<span class="pt-unit"> %</span>
-          </div>
+      </div>
+
+      <!-- ════ FILA INFERIOR: TIT-01 | LAMINAR A | VI-01 ════ -->
+      <div class="pid-tag-group bot-row">
+        <div class="pid-tag" :class="alarmCls('r_T_Oil_C')">
+          <div class="pt-name">TIT-01</div>
+          <div class="pt-val">{{ fmt(proc.r_T_Oil_C,2) }}<span class="pt-unit"> °C</span></div>
+        </div>
+        <div class="pid-tag" :class="alarmCls('PDI_01')">
+          <div class="pt-name">Laminar A</div>
+          <div class="pt-val">{{ fmt(proc.PDI_01,2) }}<span class="pt-unit"> inH2O</span></div>
         </div>
         <div class="pid-tag" :class="alarmCls('r_v_oil_medida')">
           <div class="pt-name">VIT-01</div>
@@ -520,12 +520,12 @@ const ProcesoPage = {
         <thead>
           <tr class="bg-bg-tag/80 text-white font-semibold border-b border-gray-700/60">
             <th class="py-1 px-2 uppercase text-[10px]">TIPO</th>
-            <th class="py-1 px-2 uppercase text-[10px]">Q LIQ (m³/h)</th>
-            <th class="py-1 px-2 uppercase text-[10px]">Q CRUDO (m³/h)</th>
-            <th class="py-1 px-2 uppercase text-[10px]">Q NETO (m³/h)</th>
-            <th class="py-1 px-2 uppercase text-[10px]">Q DIL (m³/h)</th>
-            <th class="py-1 px-2 uppercase text-[10px]">Q AGUA (m³/h)</th>
-            <th class="py-1 px-2 uppercase text-[10px]">Q GAS (m³/h)</th>
+            <th class="py-1 px-2 uppercase text-[10px]">Q LIQ (BBLD)</th>
+            <th class="py-1 px-2 uppercase text-[10px]">Q CRUDO (BBLD)</th>
+            <th class="py-1 px-2 uppercase text-[10px]">Q NETO (BBLD)</th>
+            <th class="py-1 px-2 uppercase text-[10px]">Q DIL (BBLD)</th>
+            <th class="py-1 px-2 uppercase text-[10px]">Q AGUA (BBLD)</th>
+            <th class="py-1 px-2 uppercase text-[10px]">Q GAS (MCFD)</th>
           </tr>
         </thead>
         <tbody class="text-gray-200">
@@ -1280,7 +1280,7 @@ const InicioPruebaPage = {
             <tr class="ip-tr ip-tr-indent"><td class="ip-td-lbl">API de la Mezcla</td>
               <td class="ip-td-val">{{ (proc.r_API_2 ?? 0).toFixed(3) }} @60°F y 1Atm</td></tr>
             <tr class="ip-tr ip-tr-indent"><td class="ip-td-lbl">API de Diluente</td>
-              <td class="ip-td-val">{{ (proc.r_API_2 ?? 0).toFixed(3) }} @60°F y 1Atm</td></tr>
+              <td class="ip-td-val">{{ (proc.r_API_1 ?? 0).toFixed(3) }} @60°F y 1Atm</td></tr>
             <tr class="ip-tr ip-tr-indent"><td class="ip-td-lbl">Caudal de Diluente</td>
               <td class="ip-td-val">{{ (proc.r_caudal_dil_BM ?? 0).toFixed(3) }} BBD</td></tr>
           </tbody>
@@ -1395,23 +1395,7 @@ const InicioPruebaPage = {
               </td>
             </tr>
 
-            <!-- Inicio por Fecha y Hora -->
-            <tr>
-              <td class="label-cell">Inicio por Fecha y Hora</td>
-              <td class="value-cell">
-                <div style="display:flex; align-items:center; gap:3px; flex-wrap:wrap;">
-                  <input v-model.number="form.fechaDD"   type="number" min="1" max="31" style="width:42px;" placeholder="DD" />
-                  <span style="color:#94a3b8;">/</span>
-                  <input v-model.number="form.fechaMM"   type="number" min="1" max="12" style="width:42px;" placeholder="MM" />
-                  <span style="color:#94a3b8;">/</span>
-                  <input v-model.number="form.fechaAAAA" type="number" min="2000" max="2099" style="width:64px;" placeholder="AAAA" />
-                  <span style="margin:0 4px; color:#94a3b8; font-weight:700;">Hora:</span>
-                  <input v-model.number="form.horaHH"   type="number" min="0" max="23" style="width:42px;" placeholder="HH" />
-                  <span style="color:#94a3b8;">:</span>
-                  <input v-model.number="form.horaMM"   type="number" min="0" max="59" style="width:42px;" placeholder="MM" />
-                </div>
-              </td>
-            </tr>
+         
 
           </table>
 
@@ -1556,11 +1540,20 @@ const InicioPruebaPage = {
       } catch (e) { emit('toast', '❌ Error de conexión', 'error'); }
     }
 
+    async function vaciarDatos() {
+      if(!confirm("¿Está seguro de vaciar todos los datos de la prueba? Esto limpiará la base de datos y la memoria.")) return;
+      try {
+        const r = await fetch('/api/plc/prueba/vaciar', { method: 'POST' });
+        if(r.ok) emit('toast', 'Datos vaciados correctamente', 'success');
+        else emit('toast', '❌ Error al vaciar', 'error');
+      } catch (e) { emit('toast', '❌ Error de conexión', 'error'); }
+    }
+
     return {
       showCargar, form,
       metodosProduccion, inyeccionOpciones,
       onComboMetodoChange, onComboInyeccionChange,
-      guardarDatos, iniciarPrueba, pararPrueba, abortarPrueba,
+      guardarDatos, iniciarPrueba, pararPrueba, abortarPrueba, vaciarDatos,
     };
   }
 };
@@ -1572,15 +1565,31 @@ const InicioPruebaPage = {
 const ReportesPage = {
   name: 'ReportesPage',
   template: `
-  <div class="px-6 py-8 flex flex-col items-center justify-center w-full max-w-4xl mx-auto animation-fade-in">
+  <div class="px-6 py-8 flex flex-col items-center justify-center w-full max-w-5xl mx-auto animation-fade-in">
     <!-- TITULO Y CABECERA -->
     <div class="bg-bg-card border border-border rounded-xl shadow-lg w-full overflow-hidden mb-6">
       <div class="bg-accent-steel text-center text-white font-bold py-3 text-sm border-b border-border uppercase tracking-widest shadow-inner">
         Descarga de Reportes
       </div>
 
-      <div class="flex flex-col md:flex-row gap-6 p-8 justify-center bg-bg-surface">
-        
+      <!-- SELECTOR DE METODO -->
+      <div class="flex border-b border-border bg-bg-surface">
+        <button 
+          @click="setMetodo('dates')" 
+          :class="['flex-1 py-3 text-sm font-semibold transition-all border-r border-border focus:outline-none', 
+                   metodo === 'dates' ? 'bg-bg-card text-accent-yellow border-b-2 border-b-accent-yellow' : 'text-gray-400 hover:text-white hover:bg-bg-primary']">
+          📅 Por Rango de Fecha y Hora
+        </button>
+        <button 
+          @click="setMetodo('pruebas')" 
+          :class="['flex-1 py-3 text-sm font-semibold transition-all focus:outline-none', 
+                   metodo === 'pruebas' ? 'bg-bg-card text-accent-yellow border-b-2 border-b-accent-yellow' : 'text-gray-400 hover:text-white hover:bg-bg-primary']">
+          🧪 Por Histórico de Pruebas de Pozo
+        </button>
+      </div>
+
+      <!-- CONTENIDO METODO: FECHAS -->
+      <div v-if="metodo === 'dates'" class="flex flex-col md:flex-row gap-6 p-8 justify-center bg-bg-surface">
         <!-- Fecha Inicio -->
         <div class="flex-1 bg-bg-card border border-border shadow-sm rounded-lg p-5 flex flex-col items-center max-w-[300px]">
           <div class="text-white font-bold mb-4 uppercase text-xs tracking-wider border-b border-border w-full text-center pb-2">Fecha Inicio</div>
@@ -1610,15 +1619,106 @@ const ReportesPage = {
             </div>
           </div>
         </div>
-
       </div>
       
-      <!-- BOTON DE DESCARGA -->
-      <div class="p-5 bg-bg-card border-t border-border flex justify-center items-center">
+      <!-- BOTON DE DESCARGA METODO FECHAS -->
+      <div v-if="metodo === 'dates'" class="p-5 bg-bg-card border-t border-border flex justify-center items-center">
         <button @click="descargar" class="px-10 py-3 bg-bg-tag hover:brightness-110 text-white font-bold rounded shadow-lg transition-transform transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 border border-accent-steel border-opacity-50">
           <span class="text-lg">📊</span>
           <span>Descargar Reporte (Excel / CSV)</span>
         </button>
+      </div>
+
+      <!-- CONTENIDO METODO: PRUEBAS -->
+      <div v-if="metodo === 'pruebas'" class="p-6 bg-bg-surface flex flex-col">
+        <!-- BUSCADOR -->
+        <div class="flex flex-col md:flex-row justify-between items-center gap-4 mb-4">
+          <div class="w-full md:w-auto flex-1 max-w-md relative">
+            <input 
+              type="text" 
+              v-model="filtroBusqueda" 
+              placeholder="Buscar por código, pozo, lugar, método o estado..." 
+              class="w-full bg-bg-primary border border-border rounded-md pl-10 pr-4 py-2 text-white text-sm outline-none focus:border-accent-yellow focus:ring-1 focus:ring-accent-yellow transition-all" 
+            />
+            <span class="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
+          </div>
+          
+          <button @click="cargarPruebas" class="px-4 py-2 bg-bg-card border border-border hover:bg-bg-primary text-white font-semibold rounded text-xs flex items-center gap-2 transition-all">
+            <span>🔄</span> Actualizar Lista
+          </button>
+        </div>
+
+        <!-- FILTROS DE DURACIÓN -->
+        <div class="flex flex-wrap items-center gap-2 mb-4 bg-bg-card p-3 rounded-lg border border-border">
+          <span class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mr-2">Duración de Prueba:</span>
+          <button 
+            v-for="opt in [{val:'all', label:'Todas'}, {val:'1', label:'1 h'}, {val:'3', label:'3 h'}, {val:'12', label:'12 h'}, {val:'24', label:'24 h'}, {val:'other', label:'Otras'}]"
+            :key="opt.val"
+            @click="duracionFiltro = opt.val"
+            :class="['px-3 py-1 rounded text-xs font-semibold border transition-all', 
+                     duracionFiltro === opt.val ? 'bg-accent-yellow text-bg-primary border-accent-yellow shadow-md' : 'bg-bg-primary text-gray-300 border-border hover:text-white hover:bg-bg-card']"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+
+        <!-- TABLA DE PRUEBAS -->
+        <div class="overflow-x-auto w-full border border-border rounded-lg bg-bg-card shadow-inner">
+          <div v-if="cargandoPruebas" class="py-10 text-center text-gray-400 text-sm">
+            Cargando historial de pruebas...
+          </div>
+          <div v-else-if="pruebasFiltradas.length === 0" class="py-10 text-center text-gray-400 text-sm">
+            No se encontraron registros de pruebas.
+          </div>
+          <table v-else class="w-full text-xs text-left border-collapse">
+            <thead>
+              <tr class="bg-bg-primary text-gray-300 border-b border-border uppercase tracking-wider text-[10px] font-bold">
+                <th class="p-3">ID</th>
+                <th class="p-3">Código Pozo</th>
+                <th class="p-3">Lugar / Pozo</th>
+                <th class="p-3">Método / RPM</th>
+                <th class="p-3">Duración (H)</th>
+                <th class="p-3">Inicio</th>
+                <th class="p-3">Fin</th>
+                <th class="p-3 text-center">Estado</th>
+                <th class="p-3 text-center">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in pruebasFiltradas" :key="p.id" class="border-b border-border hover:bg-bg-primary hover:bg-opacity-50 text-white transition-all">
+                <td class="p-3 font-semibold text-accent-yellow">#{{ p.id }}</td>
+                <td class="p-3 font-mono">{{ p.codigo_pozo || '-' }}</td>
+                <td class="p-3">
+                  <div class="font-medium text-white">{{ p.lugar || '-' }}</div>
+                  <div class="text-[10px] text-gray-400">Pozo: {{ p.pozo || '-' }}</div>
+                </td>
+                <td class="p-3">
+                  <div>{{ p.metodo || '-' }}</div>
+                  <div class="text-[10px] text-gray-400">RPM: {{ p.rpm || '-' }}</div>
+                </td>
+                <td class="p-3 font-semibold text-accent-blue">{{ p.duracion_horas }} h</td>
+                <td class="p-3 text-gray-300 font-mono text-[10px]">{{ p.fecha_inicio }}</td>
+                <td class="p-3 text-gray-300 font-mono text-[10px]">{{ p.fecha_fin || 'En progreso...' }}</td>
+                <td class="p-3 text-center">
+                  <span :style="p.estado === 'Completada' ? 'background:#064e3b; color:#34d399; border: 1px solid #059669;' : 
+                                p.estado === 'Abortada' ? 'background:#7f1d1d; color:#f87171; border: 1px solid #dc2626;' : 
+                                p.estado === 'En progreso' ? 'background:#78350f; color:#fbbf24; border: 1px solid #d97706;' :
+                                'background:#1f2937; color:#9ca3af; border: 1px solid #374151;'"
+                        class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
+                    {{ p.estado }}
+                  </span>
+                </td>
+                <td class="p-3 text-center">
+                  <button 
+                    @click="descargarPrueba(p.id)" 
+                    class="px-3 py-1.5 bg-bg-tag hover:brightness-110 text-white rounded text-[11px] font-semibold flex items-center justify-center gap-1.5 border border-accent-steel border-opacity-50 mx-auto transition-all shadow-md active:scale-95">
+                    <span>📥</span> Descargar
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -1636,6 +1736,33 @@ const ReportesPage = {
     const fechaFin = ref(todayStr);
     const horaFin = ref('23:59');
 
+    const metodo = ref('dates'); // 'dates' o 'pruebas'
+    const pruebas = ref([]);
+    const cargandoPruebas = ref(false);
+    const filtroBusqueda = ref('');
+    const duracionFiltro = ref('all');
+
+    async function cargarPruebas() {
+      cargandoPruebas.value = true;
+      try {
+        const r = await fetch('/api/reportes/pruebas');
+        if(r.ok) {
+          pruebas.value = await r.json();
+        }
+      } catch(e) {
+        console.error("Error cargando pruebas:", e);
+      } finally {
+        cargandoPruebas.value = false;
+      }
+    }
+
+    function setMetodo(m) {
+      metodo.value = m;
+      if (m === 'pruebas') {
+        cargarPruebas();
+      }
+    }
+
     function descargar() {
       const dtInicio = fechaInicio.value + " " + horaInicio.value + ":00";
       const dtFin = fechaFin.value + " " + horaFin.value + ":59";
@@ -1644,7 +1771,41 @@ const ReportesPage = {
       window.location.href = "/api/reportes/descargar?" + qs.toString();
     }
 
-    return { fechaInicio, horaInicio, fechaFin, horaFin, descargar };
+    function descargarPrueba(id) {
+      window.location.href = "/api/reportes/descargar?prueba_id=" + id;
+    }
+
+    const pruebasFiltradas = computed(() => {
+      let list = pruebas.value;
+
+      // Filtro por duración
+      if (duracionFiltro.value !== 'all') {
+        if (duracionFiltro.value === 'other') {
+          list = list.filter(p => ![1, 3, 12, 24].includes(Number(p.duracion_horas)));
+        } else {
+          const targetDur = Number(duracionFiltro.value);
+          list = list.filter(p => Number(p.duracion_horas) === targetDur);
+        }
+      }
+
+      // Filtro por búsqueda de texto
+      if (!filtroBusqueda.value) return list;
+      const q = filtroBusqueda.value.toLowerCase();
+      return list.filter(p => {
+        return (p.codigo_pozo && p.codigo_pozo.toLowerCase().includes(q)) ||
+               (p.lugar && p.lugar.toLowerCase().includes(q)) ||
+               (p.pozo && p.pozo.toLowerCase().includes(q)) ||
+               (p.metodo && p.metodo.toLowerCase().includes(q)) ||
+               (p.estado && p.estado.toLowerCase().includes(q)) ||
+               (p.id && String(p.id).includes(q));
+      });
+    });
+
+    return { 
+      fechaInicio, horaInicio, fechaFin, horaFin, descargar,
+      metodo, pruebas, cargandoPruebas, filtroBusqueda, duracionFiltro,
+      setMetodo, descargarPrueba, pruebasFiltradas, cargarPruebas
+    };
   }
 };
 
@@ -1736,9 +1897,7 @@ const PruebaProgresoPage = {
       </div>
     </div>
 
-    <div class="flex items-center justify-between pb-1">
-      <button class="w-10 h-10 rounded-full bg-accent-green flex items-center justify-center text-white shadow-lg hover:brightness-110 transition-all"><span>⬅️</span></button>
-    </div>
+   
 
   </div>
   `,
@@ -1747,7 +1906,31 @@ const PruebaProgresoPage = {
     const paused = ref(false), pausedL = ref(false), pausedS = ref(false);
     let charts = [null, null, null];
 
-    const data = reactive({ reporte: 'REP-2026-001', fechaInicio: '08/05/2026', horaInicio: '10:30:15', metodo: 'Coriolis', pozo: 'BA-145', tiempoTranscurrido: '02:15:30', rpmBomba: '1250', api: '22.5', inyeccionDiluente: '15.2' });
+    const data = computed(() => {
+      const p = props.proc || {};
+      
+      const ih = p.ad_IHM_HORA_inicio || [0,0,0,0,0];
+      const yy = ih[0], mm = ih[1], dd = ih[2];
+      const hh = ih[3], mn = ih[4];
+      const fecha = (dd && mm && yy) ? `${dd.toString().padStart(2,'0')}/${mm.toString().padStart(2,'0')}/${yy}` : '--/--/----';
+      const hora = (hh || mn) ? `${hh.toString().padStart(2,'0')}:${mn.toString().padStart(2,'0')}` : '--:--';
+
+      const tt = p.ar_TIEMPO_prueba_TOTAL || [];
+      const th = tt[3] || 0, tm = tt[5] || 0, ts = tt[6] || 0;
+      const t_trans = `${th.toString().padStart(2,'0')}:${tm.toString().padStart(2,'0')}:${ts.toString().padStart(2,'0')}`;
+
+      return {
+        reporte: p.as_Codigo_pozo_16 || '—',
+        fechaInicio: fecha,
+        horaInicio: hora,
+        metodo: p.as_Codigo_pozo_06 || '—',
+        pozo: p.as_Codigo_pozo_03 || '—',
+        tiempoTranscurrido: t_trans,
+        rpmBomba: p.as_Codigo_pozo_08 || '—',
+        api: (p.r_API_2 !== undefined && p.r_API_2 !== null) ? parseFloat(p.r_API_2).toFixed(1) : '—',
+        inyeccionDiluente: p.as_Codigo_pozo_18 || '—'
+      };
+    });
 
     const trendVars = reactive([
       { key: 'r_WC', label: 'Corte Agua', color: '#27a766', active: true },

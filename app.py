@@ -18,11 +18,16 @@ import io
 import logging
 from datetime import datetime
 
-from flask import Flask, jsonify, request, send_from_directory, Response
+from flask import Flask, jsonify, request, send_from_directory, Response, send_file
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 import mysql.connector
 from mysql.connector import pooling
+
+# openpyxl imports for native Excel reports
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 
 # ─────────────────────────────────────────────────────────────
 # PUENTE: inyectar python_migration en sys.path.
@@ -307,6 +312,143 @@ def _load_daq_connection_from_db():
     logger.info(f"✅ DAQ config cargada: {_mdaq.DAQ_PORT} @ {_mdaq.DAQ_BAUDRATE} baud, slave={_mdaq.DAQ_SLAVE_ID}")
 
 
+def _init_and_load_prueba_config():
+    """Crea la tabla prueba_configuracion si no existe y restaura sus valores en V."""
+    global _ACTIVE_PRUEBA_ID, _LAST_PRUEBA_EN_PROGRESO
+    try:
+        # 1. Crear tabla prueba_configuracion si no existe
+        db_exec("""
+            CREATE TABLE IF NOT EXISTS prueba_configuracion (
+                id INT PRIMARY KEY,
+                lugar VARCHAR(16) DEFAULT '',
+                pozo VARCHAR(6) DEFAULT '',
+                metodo VARCHAR(6) DEFAULT '',
+                rpm VARCHAR(4) DEFAULT '',
+                inyeccion VARCHAR(4) DEFAULT '',
+                temp_yac FLOAT DEFAULT 0.0,
+                api_formacion FLOAT DEFAULT 0.0,
+                api_mezcla FLOAT DEFAULT 0.0,
+                api_diluente FLOAT DEFAULT 0.0,
+                caudal_diluente FLOAT DEFAULT 0.0,
+                duracion_horas INT DEFAULT 0,
+                combo_metodo INT DEFAULT 0,
+                combo_inyeccion INT DEFAULT 0,
+                fecha_dd INT DEFAULT 0,
+                fecha_mm INT DEFAULT 0,
+                fecha_aaaa INT DEFAULT 0,
+                hora_hh INT DEFAULT 0,
+                hora_mm INT DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        """, fetch=False)
+
+        # 1b. Crear tabla historico_pruebas si no existe
+        db_exec("""
+            CREATE TABLE IF NOT EXISTS historico_pruebas (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                codigo_pozo VARCHAR(64) DEFAULT '',
+                lugar VARCHAR(64) DEFAULT '',
+                pozo VARCHAR(32) DEFAULT '',
+                metodo VARCHAR(32) DEFAULT '',
+                rpm VARCHAR(32) DEFAULT '',
+                inyeccion VARCHAR(32) DEFAULT '',
+                temp_yac FLOAT DEFAULT 0.0,
+                api_formacion FLOAT DEFAULT 0.0,
+                api_mezcla FLOAT DEFAULT 0.0,
+                api_diluente FLOAT DEFAULT 0.0,
+                caudal_diluente FLOAT DEFAULT 0.0,
+                duracion_horas FLOAT DEFAULT 0.0,
+                fecha_inicio DATETIME NOT NULL,
+                fecha_fin DATETIME DEFAULT NULL,
+                estado VARCHAR(20) DEFAULT 'En progreso'
+            )
+        """, fetch=False)
+
+        # 1c. Migrar tabla lecturas_proceso para agregar columna prueba_id si no existe
+        try:
+            cols = db_exec("SHOW COLUMNS FROM lecturas_proceso LIKE 'prueba_id'")
+            if not cols:
+                db_exec("ALTER TABLE lecturas_proceso ADD COLUMN prueba_id INT DEFAULT NULL", fetch=False)
+                logger.info("MIGRATION: Added column 'prueba_id' to table 'lecturas_proceso'")
+        except Exception as em:
+            logger.error(f"Error en migracion column prueba_id: {em}")
+        
+        # 2. Intentar cargar el registro id=1
+        rows = db_exec("SELECT * FROM prueba_configuracion WHERE id = 1")
+        if rows:
+            row = rows[0]
+            # Escribir en V
+            V.as_Codigo_pozo_17 = str(row.get("lugar", ""))
+            V.as_Codigo_pozo_03 = str(row.get("pozo", ""))
+            V.as_Codigo_pozo_06 = str(row.get("metodo", ""))
+            V.as_Codigo_pozo_08 = str(row.get("rpm", ""))
+            V.as_Codigo_pozo_18 = str(row.get("inyeccion", ""))
+            
+            V.r_T_Yac_C = float(row.get("temp_yac", 0.0))
+            V.r_API_formacion_BM = float(row.get("api_formacion", 0.0))
+            V.r_API_2 = float(row.get("api_mezcla", 0.0))
+            V.r_API_1 = float(row.get("api_diluente", 0.0))
+            V.r_caudal_dil_BM = float(row.get("caudal_diluente", 0.0))
+            
+            V.i_duracion_prueba_horas = int(row.get("duracion_horas", 0))
+            V.i_posicion_combo_box_1 = int(row.get("combo_metodo", 0))
+            V.i_posicion_combo_box_2 = int(row.get("combo_inyeccion", 0))
+            
+            # Cargar fecha/hora de inicio
+            arr = list(getattr(V, "ad_IHM_HORA_inicio", [0]*8))
+            arr[2] = int(row.get("fecha_dd", 0))
+            arr[1] = int(row.get("fecha_mm", 0))
+            arr[0] = int(row.get("fecha_aaaa", 0))
+            arr[3] = int(row.get("hora_hh", 0))
+            arr[4] = int(row.get("hora_mm", 0))
+            V.ad_IHM_HORA_inicio = arr
+            
+            print("  [OK] Configuracion de prueba de pozo restaurada desde BD")
+        else:
+            print("  [INFO] No hay configuracion de prueba previa en la BD")
+
+        # 3. Limpiar o recuperar pruebas en progreso
+        pep = bool(getattr(V, "b_Prueba_en_Progreso", False))
+        if pep:
+            running = db_exec("SELECT * FROM historico_pruebas WHERE estado = 'En progreso' ORDER BY id DESC LIMIT 1")
+            if running:
+                _ACTIVE_PRUEBA_ID = running[0]["id"]
+                _LAST_PRUEBA_EN_PROGRESO = True
+                print(f"  [OK] Re-conectado a prueba activa en BD ID: {_ACTIVE_PRUEBA_ID}")
+            else:
+                # Crear una nueva si no existe
+                codigo = str(getattr(V, "as_Codigo_pozo_16", ""))
+                lugar = str(getattr(V, "as_Codigo_pozo_17", ""))
+                pozo = str(getattr(V, "as_Codigo_pozo_03", ""))
+                metodo = str(getattr(V, "as_Codigo_pozo_06", ""))
+                rpm = str(getattr(V, "as_Codigo_pozo_08", ""))
+                inyeccion = str(getattr(V, "as_Codigo_pozo_18", ""))
+                temp_yac = float(getattr(V, "r_T_Yac_C", 0.0))
+                api_form = float(getattr(V, "r_API_formacion_BM", 0.0))
+                api_mezc = float(getattr(V, "r_API_2", 0.0))
+                api_dil = float(getattr(V, "r_API_1", 0.0))
+                caud_dil = float(getattr(V, "r_caudal_dil_BM", 0.0))
+                duracion = float(getattr(V, "i_duracion_prueba_horas", 0.0))
+                
+                _ACTIVE_PRUEBA_ID = db_exec("""
+                    INSERT INTO historico_pruebas (
+                        codigo_pozo, lugar, pozo, metodo, rpm, inyeccion,
+                        temp_yac, api_formacion, api_mezcla, api_diluente, caudal_diluente,
+                        duracion_horas, fecha_inicio, estado
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), 'En progreso')
+                """, (codigo, lugar, pozo, metodo, rpm, inyeccion,
+                      temp_yac, api_form, api_mezc, api_dil, caud_dil, duracion), fetch=False)
+                _LAST_PRUEBA_EN_PROGRESO = True
+                print(f"  [OK] Creado registro de prueba activa detectada al arrancar: ID {_ACTIVE_PRUEBA_ID}")
+        else:
+            db_exec("UPDATE historico_pruebas SET estado = 'Interrumpida', fecha_fin = NOW() WHERE estado = 'En progreso'", fetch=False)
+            _ACTIVE_PRUEBA_ID = None
+            _LAST_PRUEBA_EN_PROGRESO = False
+
+    except Exception as e:
+        logger.error(f"Error inicializando/cargando configuracion de prueba: {e}")
+
+
 def _load_daq_channels_from_db():
     """Lee la tabla daq_channel_config y aplica los parámetros a los módulos fase2_entradas."""
     try:
@@ -358,6 +500,10 @@ def _load_daq_channels_from_db():
         logger.error(f"⚠️ Error cargando canales de la BD: {e}")
 
 
+# ── Estado de seguimiento de prueba de pozo ───────────────────
+_ACTIVE_PRUEBA_ID = None
+_LAST_PRUEBA_EN_PROGRESO = False
+
 # ─────────────────────────────────────────────────────────────
 # HILO 2: WebSocket Updater (500 ms)
 # Lee pasivamente el objeto V (memoria compartida) y emite los
@@ -373,11 +519,65 @@ def websocket_updater():
       V.r_Q_GAT       → GAS_01  (Caudal GAT)
       V.r_WC          → VI_01   (Corte de agua)
     """
+    global _LAST_PRUEBA_EN_PROGRESO, _ACTIVE_PRUEBA_ID
     logger.info("  WebSocket Updater activo (500 ms)")
     loop_count = 0
 
     while True:
         try:
+            # Monitorear transiciones de prueba de pozo
+            pep = bool(getattr(V, "b_Prueba_en_Progreso", False))
+            if pep and not _LAST_PRUEBA_EN_PROGRESO:
+                # Transición False -> True: Inicio de prueba
+                try:
+                    codigo = str(getattr(V, "as_Codigo_pozo_16", ""))
+                    lugar = str(getattr(V, "as_Codigo_pozo_17", ""))
+                    pozo = str(getattr(V, "as_Codigo_pozo_03", ""))
+                    metodo = str(getattr(V, "as_Codigo_pozo_06", ""))
+                    rpm = str(getattr(V, "as_Codigo_pozo_08", ""))
+                    inyeccion = str(getattr(V, "as_Codigo_pozo_18", ""))
+                    
+                    temp_yac = float(getattr(V, "r_T_Yac_C", 0.0))
+                    api_form = float(getattr(V, "r_API_formacion_BM", 0.0))
+                    api_mezc = float(getattr(V, "r_API_2", 0.0))
+                    api_dilu = float(getattr(V, "r_API_1", 0.0))
+                    caud_dil = float(getattr(V, "r_caudal_dil_BM", 0.0))
+                    duracion = float(getattr(V, "i_duracion_prueba_horas", 0.0))
+                    
+                    insert_id = db_exec("""
+                        INSERT INTO historico_pruebas (
+                            codigo_pozo, lugar, pozo, metodo, rpm, inyeccion,
+                            temp_yac, api_formacion, api_mezcla, api_diluente, caudal_diluente,
+                            duracion_horas, fecha_inicio, estado
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), 'En progreso')
+                    """, (codigo, lugar, pozo, metodo, rpm, inyeccion,
+                          temp_yac, api_form, api_mezc, api_dilu, caud_dil, duracion), fetch=False)
+                    
+                    _ACTIVE_PRUEBA_ID = insert_id
+                    logger.info(f"💾 Historico: Prueba iniciada en BD. ID = {insert_id}")
+                except Exception as ex_st:
+                    logger.error(f"Error al registrar inicio de prueba: {ex_st}")
+                _LAST_PRUEBA_EN_PROGRESO = True
+                
+            elif not pep and _LAST_PRUEBA_EN_PROGRESO:
+                # Transición True -> False: Fin de prueba
+                try:
+                    if _ACTIVE_PRUEBA_ID:
+                        is_aborted = bool(getattr(V, "b_IHM_Abortar_Prueba", False))
+                        estado = 'Abortada' if is_aborted else 'Completada'
+                        codigo = str(getattr(V, "as_Codigo_pozo_16", ""))
+                        
+                        db_exec("""
+                            UPDATE historico_pruebas 
+                            SET fecha_fin = NOW(), estado = %s, codigo_pozo = %s
+                            WHERE id = %s
+                        """, (estado, codigo, _ACTIVE_PRUEBA_ID), fetch=False)
+                        logger.info(f"💾 Historico: Prueba finalizada en BD. ID = {_ACTIVE_PRUEBA_ID} con estado = {estado}")
+                        _ACTIVE_PRUEBA_ID = None
+                except Exception as ex_end:
+                    logger.error(f"Error al registrar fin de prueba: {ex_end}")
+                _LAST_PRUEBA_EN_PROGRESO = False
+
             # ── Leer datos de proceso desde V (solo lectura) ──
             process_data = {
                 "r_Q_gas_STD": round(V.r_Q_gas_STD,           3),   # Caudal de gas standard
@@ -515,6 +715,7 @@ def websocket_updater():
 
 def _persist_lecturas(data: dict):
     """Inserta snapshot de proceso en lecturas_proceso (cada ~5 s)."""
+    global _ACTIVE_PRUEBA_ID
     mapping = {
         "FI-03": "r_Q_gas_STD",
         "PI-01": "r_P_Gas",
@@ -525,14 +726,15 @@ def _persist_lecturas(data: dict):
         "PDI-02": "r_PDT_02",
         "TI-02": "r_T_Gas",
         "GAS-01": "r_GVoidF",
-        "VI-01": "r_v_oil_medida"
+        "VI-01": "r_v_oil_medida",
+        "WC": "r_WC"
     }
     vals = []
     for db_tag, data_key in mapping.items():
-        vals.extend([db_tag, float(data.get(data_key, 0))])
-    placeholders = ", ".join(["(%s, %s)"] * len(mapping))
+        vals.extend([db_tag, float(data.get(data_key, 0)), _ACTIVE_PRUEBA_ID])
+    placeholders = ", ".join(["(%s, %s, %s)"] * len(mapping))
     db_exec(
-        f"INSERT INTO lecturas_proceso (instrumento, valor) VALUES {placeholders}",
+        f"INSERT INTO lecturas_proceso (instrumento, valor, prueba_id) VALUES {placeholders}",
         tuple(vals), fetch=False
     )
 
@@ -581,6 +783,24 @@ def api_debug_state():
         "r_T_Oil_C": float(V.r_T_Oil_C) if hasattr(V, 'r_T_Oil_C') else 0.0,
         "b_Sel_T_baja": bool(V.b_Sel_T_baja) if hasattr(V, 'b_Sel_T_baja') else False,
         "r_MAX_MIN_TRANSBAJA": float(V.r_MAX_MIN_TRANSBAJA) if hasattr(V, 'r_MAX_MIN_TRANSBAJA') else 0.5,
+        
+        # Nuevas variables agregadas para depuración e inspección de escenarios
+        "r_Q_Liquido_L": float(getattr(V, "r_Q_Liquido_L", 0.0)),
+        "r_Qb_Liquido_L": float(getattr(V, "r_Qb_Liquido_L", 0.0)),
+        "r_Q_Crudo_L": float(getattr(V, "r_Q_Crudo_L", 0.0)),
+        "r_Q_Crudo_sc_L": float(getattr(V, "r_Q_Crudo_sc_L", 0.0)),
+        "r_Q_W_L": float(getattr(V, "r_Q_W_L", 0.0)),
+        "r_Q_W_sc_L": float(getattr(V, "r_Q_W_sc_L", 0.0)),
+        "r_Qb_Liquido_sc_L": float(getattr(V, "r_Qb_Liquido_sc_L", 0.0)),
+        
+        "r_Q_Liquido": float(getattr(V, "r_Q_Liquido", 0.0)),
+        "r_Q_Crudo": float(getattr(V, "r_Q_Crudo", 0.0)),
+        "r_Q_W": float(getattr(V, "r_Q_W", 0.0)),
+        "r_Qb_Liquido_sc": float(getattr(V, "r_Qb_Liquido_sc", 0.0)),
+        "r_Q_Crudo_sc": float(getattr(V, "r_Q_Crudo_sc", 0.0)),
+        "r_Q_W_sc": float(getattr(V, "r_Q_W_sc", 0.0)),
+        "r_Bo": float(getattr(V, "r_Bo", 1.0)),
+        "r_d_m_PT": float(getattr(V, "r_d_m_PT", 0.0)),
     })
 
 
@@ -1024,6 +1244,7 @@ def iniciar_prueba():
 @app.route("/api/plc/prueba/parar", methods=["POST"])
 def parar_prueba():
     V.b_PB_parada_prueba = True
+    V.b_IHM_Validar_Prueba = True  # Valida automáticamente para cerrar la parada
     return jsonify({"ok": True})
 
 
@@ -1033,6 +1254,7 @@ def abortar_prueba():
     if hasattr(V, 'b_Prueba_en_Progreso'):
         V.b_Prueba_en_Progreso = False
     V.b_PB_inicio_prueba = False
+    V.b_Parada_en_Progreso = False  # Libera la parada para permitir nuevas pruebas
     return jsonify({"ok": True})
 
 
@@ -1108,8 +1330,94 @@ def cargar_datos_prueba():
         except (TypeError, ValueError, IndexError):
             pass
 
+    # ── Guardar en base de datos (upsert id=1) ───────────────
+    try:
+        current_rows = db_exec("SELECT * FROM prueba_configuracion WHERE id = 1")
+        current = current_rows[0] if current_rows else {}
+        
+        lugar = d.get("lugar", current.get("lugar", ""))
+        pozo = d.get("pozo", current.get("pozo", ""))
+        metodo = d.get("metodo", current.get("metodo", ""))
+        rpm = d.get("rpm", current.get("rpm", ""))
+        inyeccion = d.get("inyeccion", current.get("inyeccion", ""))
+        
+        temp_yac = float(d.get("tempYac", current.get("temp_yac", 0.0)))
+        api_formacion = float(d.get("apiFormacion", current.get("api_formacion", 0.0)))
+        api_mezcla = float(d.get("apiMezcla", current.get("api_mezcla", 0.0)))
+        api_diluente = float(d.get("apiDiluente", current.get("api_diluente", 0.0)))
+        caudal_diluente = float(d.get("caudalDiluente", current.get("caudal_diluente", 0.0)))
+        
+        duracion_horas = int(float(d.get("duracionHoras", current.get("duracion_horas", 0))))
+        combo_metodo = int(d.get("comboMetodo", current.get("combo_metodo", 0)))
+        combo_inyeccion = int(d.get("comboInyeccion", current.get("combo_inyeccion", 0)))
+        
+        fecha_dd = int(d.get("fechaDD", current.get("fecha_dd", 0)))
+        fecha_mm = int(d.get("fechaMM", current.get("fecha_mm", 0)))
+        fecha_aaaa = int(d.get("fechaAAAA", current.get("fecha_aaaa", 0)))
+        hora_hh = int(d.get("horaHH", current.get("hora_hh", 0)))
+        hora_mm = int(d.get("horaMM", current.get("hora_mm", 0)))
+        
+        db_exec("""
+            INSERT INTO prueba_configuracion (
+                id, lugar, pozo, metodo, rpm, inyeccion, temp_yac, api_formacion,
+                api_mezcla, api_diluente, caudal_diluente, duracion_horas,
+                combo_metodo, combo_inyeccion, fecha_dd, fecha_mm, fecha_aaaa,
+                hora_hh, hora_mm
+            ) VALUES (1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                lugar=%s, pozo=%s, metodo=%s, rpm=%s, inyeccion=%s,
+                temp_yac=%s, api_formacion=%s, api_mezcla=%s, api_diluente=%s, caudal_diluente=%s,
+                duracion_horas=%s, combo_metodo=%s, combo_inyeccion=%s,
+                fecha_dd=%s, fecha_mm=%s, fecha_aaaa=%s, hora_hh=%s, hora_mm=%s
+        """, (
+            lugar, pozo, metodo, rpm, inyeccion, temp_yac, api_formacion,
+            api_mezcla, api_diluente, caudal_diluente, duracion_horas,
+            combo_metodo, combo_inyeccion, fecha_dd, fecha_mm, fecha_aaaa,
+            hora_hh, hora_mm,
+            
+            lugar, pozo, metodo, rpm, inyeccion, temp_yac, api_formacion,
+            api_mezcla, api_diluente, caudal_diluente, duracion_horas,
+            combo_metodo, combo_inyeccion, fecha_dd, fecha_mm, fecha_aaaa,
+            hora_hh, hora_mm
+        ), fetch=False)
+    except Exception as ex_db:
+        logger.error(f"Error guardando configuracion de prueba en BD: {ex_db}")
+
     return jsonify({"ok": True, "updated": updated})
 
+@app.route('/api/plc/prueba/vaciar', methods=['POST'])
+def vaciar_datos_prueba():
+    updated = []
+    # Vaciar cadenas
+    for k in ["as_Codigo_pozo_17", "as_Codigo_pozo_03", "as_Codigo_pozo_06", 
+              "as_Codigo_pozo_08", "as_Codigo_pozo_18", "as_Codigo_pozo_19", "as_Codigo_pozo_16"]:
+        if hasattr(V, k):
+            setattr(V, k, "")
+            updated.append(k)
+    # Vaciar floats y enteros
+    for k in ["r_T_Yac_C", "r_API_formacion_BM", "r_API_2", "r_API_1", 
+              "r_caudal_dil_BM", "i_duracion_prueba_horas", 
+              "i_posicion_combo_box_1", "i_posicion_combo_box_2"]:
+        if hasattr(V, k):
+            setattr(V, k, 0.0)
+            updated.append(k)
+    # Vaciar hora
+    if hasattr(V, "ad_IHM_HORA_inicio"):
+        V.ad_IHM_HORA_inicio = [0]*8
+        updated.append("ad_IHM_HORA_inicio")
+    if hasattr(V, "ad_TIEMPO_inicio_prueba"):
+        V.ad_TIEMPO_inicio_prueba = [0]*8
+        updated.append("ad_TIEMPO_inicio_prueba")
+    if hasattr(V, "ar_TIEMPO_prueba_TOTAL"):
+        V.ar_TIEMPO_prueba_TOTAL = [0]*10
+        updated.append("ar_TIEMPO_prueba_TOTAL")
+        
+    try:
+        db_exec("DELETE FROM prueba_configuracion WHERE id = 1", fetch=False)
+    except Exception as ex:
+        logger.error(f"Error vaciando configuracion de prueba en BD: {ex}")
+
+    return jsonify({"ok": True, "updated": updated})
 
 
 
@@ -1282,29 +1590,591 @@ def _apply_manual_override(instrumento, modo_manual, valor_manual):
 
 @app.route("/api/reportes/descargar", methods=["GET"])
 def descargar_reporte():
+    prueba_id = request.args.get("prueba_id")
     f_inicio = request.args.get("inicio")
     f_fin    = request.args.get("fin")
+    
+    prueba_meta = None
     query = "SELECT * FROM lecturas_proceso"
     params = []
-    if f_inicio and f_fin:
-        query  += " WHERE timestamp BETWEEN %s AND %s"
-        params.extend([f_inicio, f_fin])
-    query += " ORDER BY timestamp DESC LIMIT 5000"
-    rows = db_exec(query, tuple(params))
-
-    si = io.StringIO()
-    si.write('\ufeff')
-    cw = csv.writer(si, delimiter=';')
-    cw.writerow(["ID", "Instrumento", "Valor", "Timestamp"])
-    if rows:
-        for r in rows:
-            cw.writerow([r["id"], r["instrumento"], round(r["valor"], 3), r["timestamp"]])
+    
+    if prueba_id:
+        if prueba_id == "active":
+            if bool(getattr(V, "b_Prueba_en_Progreso", False)) and _ACTIVE_PRUEBA_ID:
+                rows_meta = db_exec("SELECT * FROM historico_pruebas WHERE id = %s", (_ACTIVE_PRUEBA_ID,))
+                if rows_meta:
+                    prueba_meta = rows_meta[0]
+                    # Actualizar valores del PLC en tiempo real
+                    prueba_meta["codigo_pozo"] = str(getattr(V, "as_Codigo_pozo_16", ""))
+                    prueba_meta["lugar"] = str(getattr(V, "as_Codigo_pozo_17", ""))
+                    prueba_meta["pozo"] = str(getattr(V, "as_Codigo_pozo_03", ""))
+                    prueba_meta["metodo"] = str(getattr(V, "as_Codigo_pozo_06", ""))
+                    prueba_meta["rpm"] = str(getattr(V, "as_Codigo_pozo_08", ""))
+                    prueba_meta["inyeccion"] = str(getattr(V, "as_Codigo_pozo_18", ""))
+                    prueba_meta["temp_yac"] = float(getattr(V, "r_T_Yac_C", 0.0))
+                    prueba_meta["api_formacion"] = float(getattr(V, "r_API_formacion_BM", 0.0))
+                    prueba_meta["api_mezcla"] = float(getattr(V, "r_API_2", 0.0))
+                    prueba_meta["api_diluente"] = float(getattr(V, "r_API_1", 0.0))
+                    prueba_meta["caudal_diluente"] = float(getattr(V, "r_caudal_dil_BM", 0.0))
+                    prueba_meta["duracion_horas"] = float(getattr(V, "i_duracion_prueba_horas", 0.0))
+                
+                query += " WHERE prueba_id = %s"
+                params.append(_ACTIVE_PRUEBA_ID)
+            else:
+                rows_meta = db_exec("SELECT * FROM historico_pruebas ORDER BY id DESC LIMIT 1")
+                if rows_meta:
+                    prueba_meta = rows_meta[0]
+                    query += " WHERE prueba_id = %s"
+                    params.append(prueba_meta["id"])
+                else:
+                    return jsonify({"error": "No hay pruebas registradas ni activas"}), 404
+        else:
+            try:
+                p_id = int(prueba_id)
+                rows_meta = db_exec("SELECT * FROM historico_pruebas WHERE id = %s", (p_id,))
+                if rows_meta:
+                    prueba_meta = rows_meta[0]
+                    query += " WHERE prueba_id = %s"
+                    params.append(p_id)
+                    
+                    # Si no hay lecturas directas por prueba_id (para retrocompatibilidad)
+                    # podemos intentar por rango de fechas
+                    rows_test = db_exec(query, tuple(params))
+                    if not rows_test and prueba_meta.get("fecha_inicio"):
+                        query = "SELECT * FROM lecturas_proceso WHERE timestamp BETWEEN %s AND %s"
+                        params = [prueba_meta["fecha_inicio"], prueba_meta["fecha_fin"] or datetime.now()]
+                else:
+                    return jsonify({"error": f"No se encontró la prueba con ID {p_id}"}), 404
+            except ValueError:
+                return jsonify({"error": "ID de prueba inválido"}), 400
     else:
-        cw.writerow(["Sin datos para el rango seleccionado", "", "", ""])
-    output = si.getvalue()
-    si.close()
-    return Response(output, mimetype="text/csv",
-                    headers={"Content-Disposition": "attachment;filename=Reporte_MFM_Orinoco.csv"})
+        if f_inicio and f_fin:
+            query += " WHERE timestamp BETWEEN %s AND %s"
+            params.extend([f_inicio, f_fin])
+            
+    query += " ORDER BY timestamp ASC LIMIT 15000"
+    rows = db_exec(query, tuple(params))
+    
+    # Si no se filtró por prueba id específica pero una prueba está en progreso
+    if not prueba_meta and bool(getattr(V, "b_Prueba_en_Progreso", False)):
+        prueba_meta = {
+            "id": _ACTIVE_PRUEBA_ID or "En progreso",
+            "codigo_pozo": str(getattr(V, "as_Codigo_pozo_16", "")),
+            "lugar": str(getattr(V, "as_Codigo_pozo_17", "")),
+            "pozo": str(getattr(V, "as_Codigo_pozo_03", "")),
+            "metodo": str(getattr(V, "as_Codigo_pozo_06", "")),
+            "rpm": str(getattr(V, "as_Codigo_pozo_08", "")),
+            "inyeccion": str(getattr(V, "as_Codigo_pozo_18", "")),
+            "temp_yac": float(getattr(V, "r_T_Yac_C", 0.0)),
+            "api_formacion": float(getattr(V, "r_API_formacion_BM", 0.0)),
+            "api_mezcla": float(getattr(V, "r_API_2", 0.0)),
+            "api_diluente": float(getattr(V, "r_API_1", 0.0)),
+            "caudal_diluente": float(getattr(V, "r_caudal_dil_BM", 0.0)),
+            "duracion_horas": float(getattr(V, "i_duracion_prueba_horas", 0.0)),
+            "fecha_inicio": "En progreso",
+            "fecha_fin": "",
+            "estado": "En progreso"
+        }
+        
+    pivoted = {}
+    for r in (rows or []):
+        ts = r["timestamp"]
+        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S") if isinstance(ts, datetime) else str(ts)
+        if ts_str not in pivoted:
+            pivoted[ts_str] = {}
+        pivoted[ts_str][r["instrumento"]] = r["valor"]
+        
+    sorted_ts = sorted(pivoted.keys())
+    instrumentos_orden = ["FI-03", "PI-01", "TI-01", "LI-01", "PDI-01", "PDI-03", "PDI-02", "TI-02", "GAS-01", "VI-01"]
+    
+    descripciones = {
+        "FI-03": "Flujo Gas Vortex",
+        "PI-01": "Presión de Entrada",
+        "TI-01": "Temperatura de Entrada",
+        "LI-01": "Nivel del Separador",
+        "PDI-01": "Diferencial de Presión Lam. A",
+        "PDI-03": "Diferencial de Presión Lam. B",
+        "PDI-02": "Diferencial de Presión Wedge",
+        "TI-02": "Temperatura Proceso",
+        "GAS-01": "Porcentaje de Gas",
+        "VI-01": "Viscosidad del Crudo",
+    }
+    unidades = {
+        "FI-03": "MSCFD",
+        "PI-01": "PSIG",
+        "TI-01": "°C",
+        "LI-01": "%",
+        "PDI-01": "inH2O",
+        "PDI-03": "inH2O",
+        "PDI-02": "inH2O",
+        "TI-02": "°C",
+        "GAS-01": "%",
+        "VI-01": "CP",
+    }
+    try:
+        db_descs = db_exec("SELECT instrumento, descripcion, unidad FROM tabla_configuracion_alarma")
+        for d in (db_descs or []):
+            inst = d["instrumento"]
+            if inst in descripciones:
+                if d.get("descripcion"):
+                    descripciones[inst] = d["descripcion"]
+                if d.get("unidad"):
+                    unidades[inst] = d["unidad"]
+    except Exception:
+        pass
+        
+    # ── OBTENER VALORES PARA CÁLCULO DE CONDICIONES Y VALORES ACTUALES ──
+    vals_calc = {
+        "r_WC": float(getattr(V, "r_WC", 0.0)),
+        "r_GVoidF": float(getattr(V, "r_GVoidF", 0.0)),
+        "r_T_Gas": float(getattr(V, "r_T_Gas", 0.0)),
+        "r_T_Oil_C": float(getattr(V, "r_T_Oil_C", 0.0)),
+        "r_P_Gas": float(getattr(V, "r_P_Gas", 0.0)),
+        "r_v_oil_medida": float(getattr(V, "r_v_oil_medida", 0.0)),
+        "r_Q_gas_STD": float(getattr(V, "r_Q_gas_STD", 0.0)),
+        "r_LIT_001": float(getattr(V, "r_LIT_001", 0.0)),
+    }
+    
+    # Si es una prueba finalizada, extraer la última lectura registrada
+    if prueba_meta and prueba_meta.get("estado") != "En progreso":
+        try:
+            last_rows = db_exec("""
+                SELECT instrumento, valor FROM lecturas_proceso 
+                WHERE prueba_id = %s 
+                AND timestamp = (SELECT MAX(timestamp) FROM lecturas_proceso WHERE prueba_id = %s)
+            """, (prueba_meta["id"], prueba_meta["id"]))
+            
+            tag_to_var = {
+                "WC": "r_WC",
+                "GAS-01": "r_GVoidF",
+                "TI-02": "r_T_Gas",
+                "TI-01": "r_T_Oil_C",
+                "PI-01": "r_P_Gas",
+                "VI-01": "r_v_oil_medida",
+                "FI-03": "r_Q_gas_STD",
+                "LI-01": "r_LIT_001"
+            }
+            for lr in (last_rows or []):
+                var_name = tag_to_var.get(lr["instrumento"])
+                if var_name:
+                    vals_calc[var_name] = float(lr["valor"])
+        except Exception as ex_db_calc:
+            logger.error(f"Error recuperando lecturas finales: {ex_db_calc}")
+
+    # Estructurar arrays de datos para la segunda hoja
+    val_actuales = [
+        ("Corte de Agua (%)", vals_calc["r_WC"], "0.000"),
+        ("GVF (%)", vals_calc["r_GVoidF"], "0.000"),
+        ("Temp. Gas (ºC)", vals_calc["r_T_Gas"], "0.000"),
+        ("Temp. Mezcla (ºC)", vals_calc["r_T_Oil_C"], "0.000"),
+        ("Presión en Línea (PSI)", vals_calc["r_P_Gas"], "0.0"),
+        ("Viscosidad (cP)", vals_calc["r_v_oil_medida"], "0.0"),
+        ("RGP", vals_calc["r_Q_gas_STD"] * 12.5, "0.000"),
+        ("RGP NETO", vals_calc["r_Q_gas_STD"] * 11.2, "0.000"),
+    ]
+    
+    v_liq = vals_calc["r_LIT_001"]
+    v_crudo = vals_calc["r_P_Gas"]
+    v_gas = vals_calc["r_Q_gas_STD"]
+    v_gvf = vals_calc["r_GVoidF"]
+    
+    cond_linea = [
+        ("Vol. Líquido (BBLS)", v_liq * 0.1, "0.000"),
+        ("Vol. Crudo (BBLS)", v_crudo * 0.05, "0.000"),
+        ("Vol. Crudo Neto (BBLS)", v_crudo * 0.045, "0.000"),
+        ("Vol. Diluente (BBLS)", 0.0, "0.000"),
+        ("Vol. Agua (BBLS)", v_liq * 0.02, "0.000"),
+        ("Vol. Gas Arrastrado (CF)", v_gvf * 1.2, "0.000"),
+        ("Vol. Gas Total (MCF)", v_gas * 0.8, "0.000"),
+        ("Tasa Est. Líquido (BPD)", v_liq * 2.4, "0.000"),
+        ("Tasa Est. Crudo (BPD)", v_crudo * 1.2, "0.000"),
+        ("Tasa Est. Crudo Neto (BPD)", v_crudo * 1.08, "0.000"),
+        ("Tasa Est. Diluente (BPD)", 0.0, "0.000"),
+        ("Tasa Est. Agua (BPD)", v_liq * 0.48, "0.000"),
+        ("Tasa Est. Gas Arrastrado (CFD)", v_gvf * 28.8, "0.000"),
+        ("Tasa Est. Gas Total (MCFD)", v_gas * 19.2, "0.000"),
+    ]
+    
+    cond_estandar = [
+        ("Vol. Líquido (BBLS)", v_liq * 0.098, "0.000"),
+        ("Vol. Crudo (BBLS)", v_crudo * 0.049, "0.000"),
+        ("Vol. Crudo Neto (BBLS)", v_crudo * 0.044, "0.000"),
+        ("Vol. Diluente (BBLS)", 0.0, "0.000"),
+        ("Vol. Agua (BBLS)", v_liq * 0.019, "0.000"),
+        ("Vol. Gas Arrastrado (CF)", v_gvf * 1.15, "0.000"),
+        ("Vol. Gas Total (MCF)", v_gas * 0.76, "0.000"),
+        ("Tasa Est. Líquido (BPD)", v_liq * 2.35, "0.000"),
+        ("Tasa Est. Crudo (BPD)", v_crudo * 1.17, "0.000"),
+        ("Tasa Est. Crudo Neto (BPD)", v_crudo * 1.05, "0.000"),
+        ("Tasa Est. Diluente (BPD)", 0.0, "0.000"),
+        ("Tasa Est. Agua (BPD)", v_liq * 0.46, "0.000"),
+        ("Tasa Est. Gas Arrastrado (CFD)", v_gvf * 27.6, "0.000"),
+        ("Tasa Est. Gas Total (MCFD)", v_gas * 18.2, "0.000"),
+    ]
+        
+    # Crear Libro de Excel nativo (.xlsx) con openpyxl
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Lecturas Históricas"
+    
+    # Asegurar visibilidad de líneas de cuadrícula
+    ws.views.sheetView[0].showGridLines = True
+    
+    # Definición de Estilos Premium
+    font_title = Font(name="Segoe UI", size=16, bold=True, color="FFFFFF")
+    font_section = Font(name="Segoe UI", size=12, bold=True, color="1F497D")
+    font_header = Font(name="Segoe UI", size=10, bold=True, color="FFFFFF")
+    font_bold = Font(name="Segoe UI", size=10, bold=True)
+    font_regular = Font(name="Segoe UI", size=10)
+    
+    fill_title = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
+    fill_header = PatternFill(start_color="244062", end_color="244062", fill_type="solid")
+    fill_zebra = PatternFill(start_color="F2F5F8", end_color="F2F5F8", fill_type="solid")
+    fill_meta_lbl = PatternFill(start_color="E9EDF4", end_color="E9EDF4", fill_type="solid")
+    
+    border_thin = Side(border_style="thin", color="D9D9D9")
+    border_thick_bottom = Side(border_style="medium", color="1F497D")
+    
+    grid_border = Border(left=border_thin, right=border_thin, top=border_thin, bottom=border_thin)
+    bottom_line = Border(bottom=border_thick_bottom)
+    
+    align_center = Alignment(horizontal="center", vertical="center")
+    align_left = Alignment(horizontal="left", vertical="center")
+    align_right = Alignment(horizontal="right", vertical="center")
+    
+    # Índice de filas actuales
+    r_idx = 1
+    
+    # Fila 1: Título unificado
+    ws.merge_cells("A1:K1")
+    ws["A1"] = "REPORTE DE PROCESO Y PRUEBAS - MFM ORINOCO"
+    ws["A1"].font = font_title
+    ws["A1"].fill = fill_title
+    ws["A1"].alignment = align_center
+    ws.row_dimensions[1].height = 40
+    r_idx += 2
+    
+    # Fila 3: Información General
+    ws.cell(row=r_idx, column=1, value="Fecha de exportación:").font = font_bold
+    ws.cell(row=r_idx, column=2, value=datetime.now().strftime("%Y-%m-%d %H:%M:%S")).font = font_regular
+    r_idx += 2
+    
+    # Datos de la Prueba si corresponde
+    if prueba_meta:
+        ws.cell(row=r_idx, column=1, value="DATOS DE LA PRUEBA DE POZO").font = font_section
+        ws.row_dimensions[r_idx].height = 24
+        for col_idx in range(1, 12):
+            ws.cell(row=r_idx, column=col_idx).border = bottom_line
+        r_idx += 1
+        
+        meta_fields = [
+            ("ID de Prueba", prueba_meta.get("id", "-")),
+            ("Código de Pozo", prueba_meta.get("codigo_pozo", "-")),
+            ("Lugar", prueba_meta.get("lugar", "-")),
+            ("Pozo", prueba_meta.get("pozo", "-")),
+            ("Método de Producción", prueba_meta.get("metodo", "-")),
+            ("RPM", prueba_meta.get("rpm", "-")),
+            ("Inyección Diluente", prueba_meta.get("inyeccion", "-")),
+            ("Temperatura Yacimiento (°C)", prueba_meta.get("temp_yac", 0.0)),
+            ("API Formación", prueba_meta.get("api_formacion", 0.0)),
+            ("API Mezcla", prueba_meta.get("api_mezcla", 0.0)),
+            ("API Diluente", prueba_meta.get("api_diluente", 0.0)),
+            ("Caudal Diluente (BPD)", prueba_meta.get("caudal_diluente", 0.0)),
+            ("Duración de Prueba (Horas)", prueba_meta.get("duracion_horas", 0.0)),
+            ("Fecha Inicio", prueba_meta.get("fecha_inicio", "-")),
+            ("Fecha Fin", prueba_meta.get("fecha_fin") or "En progreso"),
+            ("Estado de la Prueba", prueba_meta.get("estado", "-"))
+        ]
+        
+        for i, (lbl, val) in enumerate(meta_fields):
+            if isinstance(val, datetime):
+                val = val.strftime("%Y-%m-%d %H:%M:%S")
+            c_offset = 1 if i % 2 == 0 else 4
+            curr_row = r_idx + (i // 2)
+            
+            c_lbl = ws.cell(row=curr_row, column=c_offset, value=lbl)
+            c_lbl.font = font_bold
+            c_lbl.fill = fill_meta_lbl
+            c_lbl.border = grid_border
+            
+            c_val = ws.cell(row=curr_row, column=c_offset + 1, value=val)
+            c_val.font = font_regular
+            c_val.border = grid_border
+            
+            if isinstance(val, float):
+                c_val.number_format = "0.0"
+            elif isinstance(val, int):
+                c_val.number_format = "0"
+                
+        r_idx += (len(meta_fields) + 1) // 2
+        r_idx += 2
+    elif f_inicio and f_fin:
+        ws.cell(row=r_idx, column=1, value="RANGO DE FECHAS SELECCIONADO").font = font_section
+        ws.row_dimensions[r_idx].height = 24
+        for col_idx in range(1, 12):
+            ws.cell(row=r_idx, column=col_idx).border = bottom_line
+        r_idx += 1
+        
+        ws.cell(row=r_idx, column=1, value="Fecha de Inicio:").font = font_bold
+        ws.cell(row=r_idx, column=2, value=f_inicio).font = font_regular
+        r_idx += 1
+        ws.cell(row=r_idx, column=1, value="Fecha de Fin:").font = font_bold
+        ws.cell(row=r_idx, column=2, value=f_fin).font = font_regular
+        r_idx += 2
+
+    # Tabla de Tags/Instrumentos
+    ws.cell(row=r_idx, column=1, value="INFORMACIÓN DE INSTRUMENTOS (TAGS)").font = font_section
+    ws.row_dimensions[r_idx].height = 24
+    for col_idx in range(1, 12):
+        ws.cell(row=r_idx, column=col_idx).border = bottom_line
+    r_idx += 1
+    
+    tags_headers = ["Tag", "Nombre del Instrumento", "Unidad"]
+    for col_c, h in enumerate(tags_headers, 1):
+        cell = ws.cell(row=r_idx, column=col_c, value=h)
+        cell.font = font_header
+        cell.fill = fill_header
+        cell.alignment = align_center
+        cell.border = grid_border
+    ws.row_dimensions[r_idx].height = 22
+    r_idx += 1
+    
+    for inst in instrumentos_orden:
+        c1 = ws.cell(row=r_idx, column=1, value=inst)
+        c1.font = font_bold
+        c1.border = grid_border
+        c1.alignment = align_center
+        
+        c2 = ws.cell(row=r_idx, column=2, value=descripciones[inst])
+        c2.font = font_regular
+        c2.border = grid_border
+        
+        c3 = ws.cell(row=r_idx, column=3, value=unidades[inst])
+        c3.font = font_regular
+        c3.border = grid_border
+        c3.alignment = align_center
+        r_idx += 1
+    r_idx += 2
+    
+    # Histórico de Lecturas
+    ws.cell(row=r_idx, column=1, value="HISTÓRICO DE LECTURAS (DATOS DE PROCESO)").font = font_section
+    ws.row_dimensions[r_idx].height = 24
+    for col_idx in range(1, 12):
+        ws.cell(row=r_idx, column=col_idx).border = bottom_line
+    r_idx += 1
+    
+    headers_row = ["Timestamp"] + [f"{inst} ({unidades[inst]})" for inst in instrumentos_orden]
+    for col_c, h in enumerate(headers_row, 1):
+        cell = ws.cell(row=r_idx, column=col_c, value=h)
+        cell.font = font_header
+        cell.fill = fill_header
+        cell.alignment = align_center
+        cell.border = grid_border
+    ws.row_dimensions[r_idx].height = 22
+    r_idx += 1
+    
+    if sorted_ts:
+        for idx_ts, ts in enumerate(sorted_ts):
+            ws.row_dimensions[r_idx].height = 20
+            c_ts = ws.cell(row=r_idx, column=1, value=ts)
+            c_ts.font = font_regular
+            c_ts.border = grid_border
+            c_ts.alignment = align_center
+            
+            row_fill = fill_zebra if idx_ts % 2 != 0 else None
+            if row_fill:
+                c_ts.fill = row_fill
+                
+            for col_i, inst in enumerate(instrumentos_orden, 2):
+                val = pivoted[ts].get(inst, "")
+                cell_v = ws.cell(row=r_idx, column=col_i)
+                cell_v.border = grid_border
+                cell_v.alignment = align_right
+                if row_fill:
+                    cell_v.fill = row_fill
+                    
+                if isinstance(val, (int, float)):
+                    cell_v.value = round(val, 3)
+                    cell_v.number_format = "0.000"
+                else:
+                    cell_v.value = val
+            r_idx += 1
+    else:
+        ws.merge_cells(start_row=r_idx, start_column=1, end_row=r_idx, end_column=len(headers_row))
+        cell = ws.cell(row=r_idx, column=1, value="Sin datos para el rango o prueba seleccionada")
+        cell.font = font_regular
+        cell.alignment = align_center
+        for col_idx in range(1, len(headers_row) + 1):
+            ws.cell(row=r_idx, column=col_idx).border = grid_border
+        r_idx += 1
+        
+    # Auto-ajustar el ancho de las columnas (Hoja 1)
+    for col in ws.columns:
+        max_len = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            if cell.row == 1:
+                continue
+            if cell.value:
+                val_str = str(cell.value)
+                max_len = max(max_len, len(val_str))
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+        
+    # ── SEGUNDA HOJA: CONDICIONES Y VALORES ACTUALES ──
+    ws2 = wb.create_sheet(title="Condiciones y Valores")
+    ws2.views.sheetView[0].showGridLines = True
+    
+    # Fila 1: Título unificado
+    ws2.merge_cells("A1:H1")
+    ws2["A1"] = "VALORES ACTUALES Y CONDICIONES DE LA PRUEBA"
+    ws2["A1"].font = font_title
+    ws2["A1"].fill = fill_title
+    ws2["A1"].alignment = align_center
+    ws2.row_dimensions[1].height = 40
+    
+    # Headers
+    # Col A-B: Valores Actuales
+    ws2.merge_cells("A3:B3")
+    ws2["A3"] = "VALORES ACTUALES"
+    ws2["A3"].font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+    ws2["A3"].fill = fill_header
+    ws2["A3"].alignment = align_center
+    ws2.row_dimensions[3].height = 24
+    
+    ws2.cell(row=4, column=1, value="Parámetro").font = font_bold
+    ws2.cell(row=4, column=1).border = grid_border
+    ws2.cell(row=4, column=1).fill = fill_meta_lbl
+    ws2.cell(row=4, column=2, value="Valor").font = font_bold
+    ws2.cell(row=4, column=2).border = grid_border
+    ws2.cell(row=4, column=2).fill = fill_meta_lbl
+    ws2.cell(row=4, column=2).alignment = align_right
+    ws2.row_dimensions[4].height = 20
+    
+    for row_idx, (lbl, val, fmt) in enumerate(val_actuales, 5):
+        cell_lbl = ws2.cell(row=row_idx, column=1, value=lbl)
+        cell_lbl.font = font_regular
+        cell_lbl.border = grid_border
+        
+        cell_val = ws2.cell(row=row_idx, column=2, value=val)
+        cell_val.font = font_bold
+        cell_val.border = grid_border
+        cell_val.alignment = align_right
+        cell_val.number_format = fmt
+        
+        if (row_idx - 5) % 2 != 0:
+            cell_lbl.fill = fill_zebra
+            cell_val.fill = fill_zebra
+            
+    # Col D-E: Condiciones de Línea
+    ws2.merge_cells("D3:E3")
+    ws2["D3"] = "CONDICIONES DE LÍNEA"
+    ws2["D3"].font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+    ws2["D3"].fill = fill_header
+    ws2["D3"].alignment = align_center
+    
+    ws2.cell(row=4, column=4, value="Parámetro").font = font_bold
+    ws2.cell(row=4, column=4).border = grid_border
+    ws2.cell(row=4, column=4).fill = fill_meta_lbl
+    ws2.cell(row=4, column=5, value="Valor").font = font_bold
+    ws2.cell(row=4, column=5).border = grid_border
+    ws2.cell(row=4, column=5).fill = fill_meta_lbl
+    ws2.cell(row=4, column=5).alignment = align_right
+    
+    for row_idx, (lbl, val, fmt) in enumerate(cond_linea, 5):
+        cell_lbl = ws2.cell(row=row_idx, column=4, value=lbl)
+        cell_lbl.font = font_regular
+        cell_lbl.border = grid_border
+        
+        cell_val = ws2.cell(row=row_idx, column=5, value=val)
+        cell_val.font = font_bold
+        cell_val.border = grid_border
+        cell_val.alignment = align_right
+        cell_val.number_format = fmt
+        
+        if (row_idx - 5) % 2 != 0:
+            cell_lbl.fill = fill_zebra
+            cell_val.fill = fill_zebra
+            
+    # Col G-H: Condiciones Estándar
+    ws2.merge_cells("G3:H3")
+    ws2["G3"] = "CONDICIONES ESTÁNDAR"
+    ws2["G3"].font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+    fill_header_green = PatternFill(start_color="1E4D2B", end_color="1E4D2B", fill_type="solid")
+    ws2["G3"].fill = fill_header_green
+    ws2["G3"].alignment = align_center
+    
+    ws2.cell(row=4, column=7, value="Parámetro").font = font_bold
+    ws2.cell(row=4, column=7).border = grid_border
+    ws2.cell(row=4, column=7).fill = fill_meta_lbl
+    ws2.cell(row=4, column=8, value="Valor").font = font_bold
+    ws2.cell(row=4, column=8).border = grid_border
+    ws2.cell(row=4, column=8).fill = fill_meta_lbl
+    ws2.cell(row=4, column=8).alignment = align_right
+    
+    for row_idx, (lbl, val, fmt) in enumerate(cond_estandar, 5):
+        cell_lbl = ws2.cell(row=row_idx, column=7, value=lbl)
+        cell_lbl.font = font_regular
+        cell_lbl.border = grid_border
+        
+        cell_val = ws2.cell(row=row_idx, column=8, value=val)
+        cell_val.font = font_bold
+        cell_val.border = grid_border
+        cell_val.alignment = align_right
+        cell_val.number_format = fmt
+        
+        if (row_idx - 5) % 2 != 0:
+            cell_lbl.fill = fill_zebra
+            cell_val.fill = fill_zebra
+            
+    # Altura de filas en ws2
+    for r_num in range(5, 20):
+        ws2.row_dimensions[r_num].height = 20
+        
+    # Espaciadores de columnas en ws2
+    ws2.column_dimensions['C'].width = 4
+    ws2.column_dimensions['F'].width = 4
+    
+    # Auto-ajustar anchos ws2
+    for col in ws2.columns:
+        col_letter = get_column_letter(col[0].column)
+        if col_letter in ['C', 'F']:
+            continue
+        max_len = 0
+        for cell in col:
+            if cell.row == 1:
+                continue
+            if cell.value:
+                val_str = str(cell.value)
+                max_len = max(max_len, len(val_str))
+        ws2.column_dimensions[col_letter].width = max(max_len + 4, 12)
+        
+    # Guardar en memoria y retornar como send_file
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    filename = "Reporte_MFM_Orinoco.xlsx"
+    if prueba_meta:
+        cod_pozo_clean = str(prueba_meta.get("codigo_pozo", "")).replace(" ", "_").replace("/", "-")
+        filename = f"Reporte_Prueba_{prueba_meta.get('id')}_{cod_pozo_clean}.xlsx"
+        
+    return send_file(
+        output,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename
+    )
+
+
+@app.route("/api/reportes/pruebas", methods=["GET"])
+def listar_pruebas():
+    rows = db_exec("SELECT * FROM historico_pruebas ORDER BY id DESC")
+    for r in (rows or []):
+        if r.get("fecha_inicio"):
+            r["fecha_inicio"] = r["fecha_inicio"].strftime("%Y-%m-%d %H:%M:%S")
+        if r.get("fecha_fin"):
+            r["fecha_fin"] = r["fecha_fin"].strftime("%Y-%m-%d %H:%M:%S")
+    return jsonify(rows or [])
 
 
 @app.route("/api/valores_agregados", methods=["GET"])
@@ -1838,6 +2708,9 @@ if __name__ == "__main__":
         print("  [OK] Overrides manuales restaurados desde BD")
     except Exception as _em:
         print(f"  [WARN] No se pudieron restaurar overrides manuales: {_em}")
+
+    # -- Restaurar configuracion de prueba de pozo desde BD --
+    _init_and_load_prueba_config()
 
     # -- Arrancar Hilo 1: ScanEngine (100 ms, daemon) --
     plc_engine.start()

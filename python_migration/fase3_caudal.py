@@ -599,7 +599,7 @@ def p04_caudal():
             V.r_Relacion_Delta_miu_laminar = V.r_DP_L / V.r_miu_Oil
 
     # Rung 2: selector Automático/Manual Wedge-Laminar
-    if V.b_sw_AM_Laminar_Wedge_x:
+    if not V.b_sw_AM_Laminar_Wedge_x:
         V.i_sw_AM_Laminar_Wedge = 8 if V.b_sw_AM_Laminar_Wedge_y else 4
     else:
         V.i_sw_AM_Laminar_Wedge = 2
