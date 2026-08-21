@@ -36,6 +36,14 @@ def p07_pid():
     cv_nivel_antes = V.fb_LEVEL_PID.r_CVEU
     cv_presion_antes = V.fb_PRESS_PID.r_CVEU
 
+    # ── Posición de seguridad cuando los lazos están deshabilitados ──────────
+    # Al deshabilitar (b_DESHABILITA_PID = True):
+    #   LCV-01 (válvula nivel) → 100 % = ABIERTA  (deja pasar líquido)
+    #   PCV-01 (válvula presión) → 0 % = CERRADA  (cierra el gas)
+    if V.b_DESHABILITA_PID:
+        V.r_LEVEL_PID_03_CVOverride = 100.0   # LCV-01 abierta
+        V.r_PRESS_PID_03_CVOverride = 0.0     # PCV-01 cerrada
+
     # PID Nivel → válvula de líquido (LCV-01)
     V.fb_BNOT_05.execute(V.b_MAN_LC)
     V.fb_LEVEL_PID.execute(
@@ -107,10 +115,10 @@ def p07_pid():
             f"PID-DIAG | "
             f"NIVEL[{nivel_modo}] PV={pv_nivel:.1f} SP={V.r_LEVEL_PID_SP:.1f} "
             f"CV={V.fb_LEVEL_PID_r_CVEU:.2f}% CVOper={V.r_LEVEL_PID_03_CVOper:.1f} "
-            f"CVOver={V.r_LEVEL_PID_03_CVOverride:.1f} FI={V.r_LEVEL_PID_03_Factor_I:.3f} "
-            f"exec={ejecuto_nivel} | "
+            f"CVOver={V.r_LEVEL_PID_03_CVOverride:.1f} AO:00={V.r_Local_2_O_Ch0Data:.0f}mA | "
             f"PRESS[{press_modo}] PV={V.r_PRESS_PID_PV:.1f} SP={V.r_PRESS_PID_SP:.1f} "
-            f"CV={V.fb_PRESS_PID_r_CVEU:.2f}% exec={ejecuto_press}"
+            f"CV={V.fb_PRESS_PID_r_CVEU:.2f}% CVOper={V.r_PRESS_PID_03_CVOper:.1f} "
+            f"CVOver={V.r_PRESS_PID_03_CVOverride:.1f} AO:01={V.r_Local_2_O_Ch1Data:.0f}mA"
         )
 
     V.i_P07_duracion_mSeg = V.t_P07_duracion.read()

@@ -406,10 +406,10 @@ def _parse_registers(result, device_index: int = 0, config: dict = None):
             try:
                 _v = _get_V()
                 if _v is not None and _v.b_habilitar_F_HART:
-                    _set_v_attr(_v, "r_DP_gas", pv_2)
+                    _set_v_attr(_v, "r_Transmisor_Gas", pv_2)
                     _set_v_attr(_v, "r_P_Gas", pv_3)
                     _set_v_attr(_v, "r_T_Gas", (pv_4 - 32.0) / 1.8)
-                    logger.debug(f"[HART-WEDGE_GAS] DP_gas={getattr(_v, 'r_DP_gas', 0.0):.3f} | P_Gas={getattr(_v, 'r_P_Gas', 0.0):.3f} | T={getattr(_v, 'r_T_Gas', 0.0):.2f}°C")
+                    logger.debug(f"[HART-WEDGE_GAS] Transmisor_Gas={getattr(_v, 'r_Transmisor_Gas', 0.0):.3f} | P_Gas={getattr(_v, 'r_P_Gas', 0.0):.3f} | T={getattr(_v, 'r_T_Gas', 0.0):.2f}°C")
             except Exception as _e:
                 logger.warning(f"[HART-WEDGE_GAS] Error inyectando en V: {_e}")
 

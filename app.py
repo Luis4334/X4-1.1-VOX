@@ -312,6 +312,94 @@ def _load_daq_connection_from_db():
     logger.info(f"✅ DAQ config cargada: {_mdaq.DAQ_PORT} @ {_mdaq.DAQ_BAUDRATE} baud, slave={_mdaq.DAQ_SLAVE_ID}")
 
 
+def _load_instrument_selection_from_db():
+    """Restaura la selección de instrumentos y estado de lazos desde la BD a la memoria (objeto V)."""
+    try:
+        # Asegurar de forma robusta que la columna b_DESHABILITA_PID y otras columnas existan en la tabla instrument_selection_config
+        additional_cols = {
+            "b_DESHABILITA_PID": "BOOLEAN DEFAULT FALSE",
+            "b_sel_tipo_instrum_dil": "BOOLEAN DEFAULT FALSE",
+            "b_AUTO_GAS_01": "BOOLEAN DEFAULT FALSE",
+            "b_SEL_VLV_GAS_01": "BOOLEAN DEFAULT FALSE"
+        }
+        for col, col_type in additional_cols.items():
+            try:
+                db_exec(f"ALTER TABLE instrument_selection_config ADD COLUMN IF NOT EXISTS {col} {col_type}", fetch=False)
+            except Exception:
+                # En algunos motores de BD que no soporten IF NOT EXISTS en ALTER TABLE,
+                # o si la columna ya existe, esto podría arrojar un error que ignoramos.
+                pass
+
+        rows = db_exec("SELECT * FROM instrument_selection_config WHERE id=1")
+        if not rows:
+            logger.info("ℹ️ instrument_selection_config: tabla vacía en la BD, usando valores en memoria")
+            return
+        
+        r = rows[0]
+        mapping = {
+            "b_Control_PID_Gas": "b_Control_PID_Gas",
+            "b_PID_POSIC_SW": "b_PID_POSIC_SW",
+            "b_Sw_Wedge_Gas": "b_Sw_Wedge_Gas",
+            "b_SW_DIL_MEDIDO_CALC": "b_SW_DIL_MEDIDO_CALC",
+            "b_Sw_Wedge_Gas_2": "b_Sw_Wedge_Gas_2",
+            "b_SEL_LAMINAR": "b_SEL_LAMINAR",
+            "b_SEL_T_baja": "b_SEL_T_baja",
+            "b_sw_AM_Laminar_Wedge_x": "b_sw_AM_Laminar_Wedge_x",
+            "b_sw_AM_Laminar_Wedge_y": "b_sw_AM_Laminar_Wedge_y",
+            "b_sel_tipo_instrum_dil": "b_sel_tipo_instrum_dil",
+            "b_AUTO_GAS_01": "b_AUTO_GAS_01",
+            "b_SEL_VLV_GAS_01": "b_SEL_VLV_GAS_01",
+            "b_DESHABILITA_PID": "b_DESHABILITA_PID"
+        }
+        
+        for db_col, v_var in mapping.items():
+            if db_col in r and r[db_col] is not None:
+                setattr(V, v_var, bool(r[db_col]))
+                
+        # Sincronizar b_Sel_T_baja si corresponde
+        if hasattr(V, "b_Sel_T_baja") and hasattr(V, "b_SEL_T_baja"):
+            V.b_Sel_T_baja = V.b_SEL_T_baja
+
+        logger.info("✅ Selección de instrumentos y estado de lazos (b_DESHABILITA_PID) restaurados desde BD")
+    except Exception as e:
+        logger.error(f"❌ Error al restaurar instrument_selection_config desde BD: {e}")
+
+
+def _load_configuracion_actual_from_db():
+    """Carga los parámetros de los lazos PID (SP, modo, CV manual, Kp, Ki, Kd) desde la BD a V."""
+    try:
+        rows = db_exec("SELECT * FROM configuracion_actual")
+        for r in (rows or []):
+            inst = r.get("instrumento")
+            modo = r.get("modo", "Auto")
+            sp = r.get("SP", 0.0)
+            cv_man = r.get("CV_manual", 0.0)
+            kp = r.get("Kp", 1.0)
+            ki = r.get("Ki", 0.1)
+            kd = r.get("Kd", 0.0)
+            
+            if inst == "LIC-01":
+                V.b_MAN_LC = (modo == "Manual")
+                V.r_LEVEL_PID_SP = float(sp)
+                V.r_LEVEL_PID_03_CVOverride = float(cv_man)
+                V.r_LEVEL_PID_03_CVOper = float(cv_man)
+                V.r_LEVEL_PID_03_KP = float(kp)
+                V.r_LEVEL_PID_03_KI = float(ki)
+                V.r_LEVEL_PID_03_KD = float(kd)
+                logger.info(f"⚙️ PID LIC-01 restaurado desde BD: modo={modo}, SP={sp}, CV_man={cv_man}, Kp={kp}, Ki={ki}, Kd={kd}")
+            elif inst == "PIC-01":
+                V.b_MAN_PC = (modo == "Manual")
+                V.r_PRESS_PID_SP = float(sp)
+                V.r_PRESS_PID_03_CVOverride = float(cv_man)
+                V.r_PRESS_PID_03_CVOper = float(cv_man)
+                V.r_PRESS_PID_03_KP = float(kp)
+                V.r_PRESS_PID_03_KI = float(ki)
+                V.r_PRESS_PID_03_KD = float(kd)
+                logger.info(f"⚙️ PID PIC-01 restaurado desde BD: modo={modo}, SP={sp}, CV_man={cv_man}, Kp={kp}, Ki={ki}, Kd={kd}")
+    except Exception as e:
+        logger.error(f"❌ Error al restaurar configuracion_actual desde BD: {e}")
+
+
 def _init_and_load_prueba_config():
     """Crea la tabla prueba_configuracion si no existe y restaura sus valores en V."""
     global _ACTIVE_PRUEBA_ID, _LAST_PRUEBA_EN_PROGRESO
@@ -499,6 +587,45 @@ def _load_daq_channels_from_db():
     except Exception as e:
         logger.error(f"⚠️ Error cargando canales de la BD: {e}")
 
+def _load_daq_ao_from_db():
+    """Lee la tabla daq_ao_config y aplica los parámetros a fase8_salidas."""
+    try:
+        import sys
+        rows = db_exec("SELECT * FROM daq_ao_config ORDER BY channel_addr")
+        if not rows:
+            logger.info("🔌 DAQ AO: usando mapa por defecto (tabla vacía)")
+            return
+        
+        new_map = []
+        for r in rows:
+            if r.get("enabled", 1):
+                phys_addr = r.get("modbus_addr")
+                if phys_addr is None:
+                    phys_addr = r["channel_addr"]
+                new_map.append((
+                    r["v_name"],
+                    int(phys_addr),
+                    float(r.get("scale_min", 4000.0)),
+                    float(r.get("scale_max", 20000.0)),
+                    r["description"]
+                ))
+        
+        if new_map:
+            import fase8_salidas as _f8
+            
+            # Actualizar en el módulo importado por Flask
+            _f8._OUTPUT_MAP = new_map
+            
+            # Actualizar en el módulo importado por ScanEngine
+            _f8_se = sys.modules.get('fase8_salidas')
+            if _f8_se:
+                _f8_se._OUTPUT_MAP = new_map
+            
+            logger.info(f"✅ DAQ AO cargados/actualizados de BD: {new_map}")
+    except Exception as e:
+        logger.error(f"⚠️ Error cargando canales AO de la BD: {e}")
+
+
 
 # ── Estado de seguimiento de prueba de pozo ───────────────────
 _ACTIVE_PRUEBA_ID = None
@@ -595,13 +722,41 @@ def websocket_updater():
                 "r_WC":        round(V.r_WC,                  2),   # WC Corte de Agua
                 "r_nivel_aux": round(V.r_nivel_aux,           2),   # Nivel aux
                 "r_Q_gas":     round(V.r_Q_gas,               3),   # Caudal de gas calculado
+                "r_Transmisor_Gas": round(getattr(V, "r_Transmisor_Gas", 0.0), 2), # DP Wedge Gas
                 # ── Tablas inferiores ─────────────────────────────────
                 "Est_Q_Liq":   round(V.r_Qb_Liquido_Estimado, 3),   # Est.Qliq
                 "Est_Q_Crudo": round(V.r_Q_Crudo_Estimado,    3),   # Est.Q.Crudo
                 "Est_Q_Neto":  round(V.r_Q_Crudo_Neto_Estimado, 3), # Est.Q.Neto
-                "Est_Q_Dil":   round(V.r_Qb_Liquido_sc_Estimado, 3),# Est.Q.Diluente (Qb_sc_Est)
+                "Est_Q_Dil":   round(V.r_Qb_Dil_Estimado, 3),       # Est.Q.Diluente
                 "Est_Q_Agua":  round(V.r_Q_W_Estimado,        3),   # Est.QAgua
-                "Est_Q_Gas":   round(V.r_Q_gas_T_sc,          3),   # Est.Q.Gas Total STD
+                "Est_Q_Gas":   round(V.r_Q_gas_sc_Estimado,   3),   # Est.Q.Gas Total STD
+
+                # ── Datos Prueba Progreso ──
+                "Vol_Liquido": round(float(getattr(V, "r_Vol_Liquido_Total", 0.0)), 3),
+                "Vol_Crudo": round(float(getattr(V, "r_Vol_Crudo_Total", 0.0)), 3),
+                "Vol_Crudo_Neto": round(float(getattr(V, "r_Vol_Crudo_Total_neto", 0.0)), 3),
+                "Vol_Diluente": round(float(getattr(V, "r_Vol_Dil_Total", 0.0)), 3),
+                "Vol_Agua": round(float(getattr(V, "r_Vol_W_Total", 0.0)), 3),
+                "Vol_Gas_Arr": round(float(getattr(V, "r_Vol_gat_Total", 0.0)) * 1000.0, 3),
+                "Vol_Gas_Total": round(float(getattr(V, "r_Vol_gas_Total", 0.0)), 3),
+
+                "Vol_Liquido_sc": round(float(getattr(V, "r_Vol_Liquido_Total_sc", 0.0)), 3),
+                "Vol_Crudo_sc": round(float(getattr(V, "r_Vol_Crudo_Total_sc", 0.0)), 3),
+                "Vol_Crudo_Neto_sc": round(float(getattr(V, "r_Vol_Crudo_Total_neto_sc", 0.0)), 3),
+                "Vol_Diluente_sc": round(float(getattr(V, "r_Vol_Dil_Total_sc", 0.0)), 3),
+                "Vol_Agua_sc": round(float(getattr(V, "r_Vol_W_Total_sc", 0.0)), 3),
+                "Vol_Gas_Arr_sc": round(float(getattr(V, "r_Vol_gat_Total_sc", 0.0)) * 1000.0, 3),
+                "Vol_Gas_Total_sc": round(float(getattr(V, "r_Vol_gas_Total_sc", 0.0)), 3),
+
+                "Est_Q_gat": round(float(getattr(V, "r_Q_gat_Estimado", 0.0)) * 1000.0, 3),
+                "Est_Q_gas_line": round(float(getattr(V, "r_Q_gas_Estimado", 0.0)), 3),
+                "Est_Q_Liq_sc": round(float(getattr(V, "r_Qb_Liquido_sc_Estimado", 0.0)), 3),
+                "Est_Q_Crudo_sc": round(float(getattr(V, "r_Q_Crudo_sc_Estimado", 0.0)), 3),
+                "Est_Q_Crudo_Neto_sc": round(float(getattr(V, "r_Q_Crudo_Neto_Estimado_sc", 0.0)), 3),
+                "Est_Q_Dil_sc": round(float(getattr(V, "r_Qb_Dil_Estimado_sc", 0.0)), 3),
+                "Est_Q_Agua_sc": round(float(getattr(V, "r_Q_W_sc_Estimado", 0.0)), 3),
+                "Est_Q_gat_sc": round(float(getattr(V, "r_Q_gat_sc_Estimado", 0.0)) * 1000.0, 3),
+
                 "Q_Liq":       round(V.r_Q_Liquido,           3),   # Q.Liq
                 "Q_Crudo":     round(V.r_Q_Crudo,             3),   # Q.Crudo
                 "Q_Neto":      round(V.r_Q_Crudo - V.r_caudal_dil_BM, 3), # Q.Neto
@@ -637,6 +792,10 @@ def websocket_updater():
                 "r_API_2":             round(float(getattr(V, "r_API_2",            0.0)), 3),
                 "r_API_1":             round(float(getattr(V, "r_API_1",            0.0)), 3),
                 "r_caudal_dil_BM":     round(float(getattr(V, "r_caudal_dil_BM",   0.0)), 3),
+                "r_API_MEZCLA_TEORICO": round(float(getattr(V, "r_API_MEZCLA_TEORICO", 0.0)), 3),
+                "r_CAUDAL_NETO_TEORICO": round(float(getattr(V, "r_CAUDAL_NETO_TEORICO", 0.0)), 3),
+                "r_Rso_PT": round(float(getattr(V, "r_Rso_PT", 0.0)), 3),
+                "r_Bo_PT": round(float(getattr(V, "r_Bo_PT", 0.0)), 3),
                 "i_posicion_combo_box_1": int(getattr(V, "i_posicion_combo_box_1", 0)),
                 "i_posicion_combo_box_2": int(getattr(V, "i_posicion_combo_box_2", 0)),
                 "ar_TIEMPO_prueba_TOTAL": list(getattr(V, "ar_TIEMPO_prueba_TOTAL", [0]*8)),
@@ -706,11 +865,119 @@ def websocket_updater():
             if loop_count >= 10:
                 loop_count = 0
                 _persist_lecturas(process_data)
+                _check_and_record_alarmas()
 
         except Exception as e:
             logger.error(f"WebSocket Updater error: {e}")
 
         time.sleep(0.5)
+
+
+# ── Estado de alarmas previo para detección de bordes ──────────────────────
+_alarm_prev_state: dict = {}   # instrumento → nivel previo ('', 'HH', 'H', 'L', 'LL')
+
+# Mapa instrumento → variable en V
+_ALARM_VAR_MAP = {
+    "FI-03":   "r_Q_gas_STD",
+    "GAS-01":  "r_GVoidF",
+    "LI-01":   "r_LIT_001",
+    "PDI-01":  "r_PDT_01",
+    "PDI-02":  "r_PDT_02",
+    "PDI-03":  "r_PDT_03",
+    "PDI-04":  "r_Transmisor_Gas",
+    "PI-01":   "r_P_Gas",
+    "PI-02":   "r_P_Oil",
+    "TI-01":   "r_T_Oil_C",
+    "TI-02":   "r_T_Gas",
+    "VI-01":   "r_v_oil_medida",
+    "WC":      "r_WC",
+    "NIV-AUX": "r_nivel_aux",
+}
+
+def _check_and_record_alarmas():
+    """Detecta transiciones de alarma y las registra en historico_alarmas."""
+    global _alarm_prev_state
+    try:
+        alarmas_cfg = db_exec(
+            "SELECT instrumento, descripcion, unidad, SP_HH, SP_H, SP_L, SP_LL "
+            "FROM tabla_configuracion_alarma"
+        ) or []
+        for cfg in alarmas_cfg:
+            inst = cfg["instrumento"]
+            var = _ALARM_VAR_MAP.get(inst)
+            if not var:
+                continue
+            valor = float(getattr(V, var, 0.0) or 0.0)
+            sp_hh = cfg.get("SP_HH")
+            sp_h  = cfg.get("SP_H")
+            sp_l  = cfg.get("SP_L")
+            sp_ll = cfg.get("SP_LL")
+
+            # Determinar nivel actual
+            if sp_hh is not None and valor >= sp_hh:
+                nivel = "HH"
+                sp_act = sp_hh
+            elif sp_h is not None and valor >= sp_h:
+                nivel = "H"
+                sp_act = sp_h
+            elif sp_ll is not None and valor <= sp_ll:
+                nivel = "LL"
+                sp_act = sp_ll
+            elif sp_l is not None and valor <= sp_l:
+                nivel = "L"
+                sp_act = sp_l
+            else:
+                nivel = ""
+                sp_act = None
+
+            prev = _alarm_prev_state.get(inst, "")
+            if nivel != prev:  # transición detectada
+                ts_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                if nivel:  # entró a alarma
+                    db_exec(
+                        "INSERT INTO historico_alarmas "
+                        "(instrumento, descripcion, unidad, valor, nivel, sp_activo) "
+                        "VALUES (%s, %s, %s, %s, %s, %s)",
+                        (inst, cfg.get("descripcion", ""), cfg.get("unidad", ""),
+                         round(valor, 4), nivel, sp_act),
+                        fetch=False
+                    )
+                    logger.warning(
+                        f"🚨 ALARMA {nivel} | {inst} ({cfg.get('descripcion','')}): "
+                        f"valor={valor:.3f} SP={sp_act}"
+                    )
+                    # ← Emitir a TODOS los clientes conectados en tiempo real
+                    socketio.emit("new_alarm", {
+                        "timestamp":   ts_now,
+                        "instrumento": inst,
+                        "descripcion": cfg.get("descripcion", ""),
+                        "unidad":      cfg.get("unidad", ""),
+                        "valor":       round(valor, 4),
+                        "nivel":       nivel,
+                        "sp_activo":   sp_act,
+                    })
+                else:  # salió de alarma – registrar retorno a normal
+                    db_exec(
+                        "INSERT INTO historico_alarmas "
+                        "(instrumento, descripcion, unidad, valor, nivel, sp_activo) "
+                        "VALUES (%s, %s, %s, %s, %s, %s)",
+                        (inst, cfg.get("descripcion", ""), cfg.get("unidad", ""),
+                         round(valor, 4), "OK", None),
+                        fetch=False
+                    )
+                    socketio.emit("new_alarm", {
+                        "timestamp":   ts_now,
+                        "instrumento": inst,
+                        "descripcion": cfg.get("descripcion", ""),
+                        "unidad":      cfg.get("unidad", ""),
+                        "valor":       round(valor, 4),
+                        "nivel":       "OK",
+                        "sp_activo":   None,
+                    })
+                _alarm_prev_state[inst] = nivel
+    except Exception as exc:
+        logger.error(f"Error en _check_and_record_alarmas: {exc}")
+
 
 
 def _persist_lecturas(data: dict):
@@ -727,7 +994,13 @@ def _persist_lecturas(data: dict):
         "TI-02": "r_T_Gas",
         "GAS-01": "r_GVoidF",
         "VI-01": "r_v_oil_medida",
-        "WC": "r_WC"
+        "WC": "r_WC",
+        "Q_LIQ": "Q_Liq",
+        "Q_CRUDO": "Q_Crudo",
+        "Q_NETO": "Q_Neto",
+        "Q_DIL": "Q_Dil",
+        "Q_AGUA": "Q_Agua",
+        "Q_GAS": "Q_Gas"
     }
     vals = []
     for db_tag, data_key in mapping.items():
@@ -801,6 +1074,21 @@ def api_debug_state():
         "r_Q_W_sc": float(getattr(V, "r_Q_W_sc", 0.0)),
         "r_Bo": float(getattr(V, "r_Bo", 1.0)),
         "r_d_m_PT": float(getattr(V, "r_d_m_PT", 0.0)),
+        
+        # Diluent debug variables
+        "r_caudal_dil_BM": float(getattr(V, "r_caudal_dil_BM", 0.0)),
+        "r_Q_DIL_MEDIDO": float(getattr(V, "r_Q_DIL_MEDIDO", 0.0)),
+        "r_Qb_Dil_Estimado": float(getattr(V, "r_Qb_Dil_Estimado", 0.0)),
+        "r_Qb_Dil_Estimado_sc": float(getattr(V, "r_Qb_Dil_Estimado_sc", 0.0)),
+        "r_Q_Crudo_Estimado": float(getattr(V, "r_Q_Crudo_Estimado", 0.0)),
+        "r_Q_Crudo_Neto_Estimado": float(getattr(V, "r_Q_Crudo_Neto_Estimado", 0.0)),
+        "r_Q_Crudo_Neto_Estimado_sc": float(getattr(V, "r_Q_Crudo_Neto_Estimado_sc", 0.0)),
+        "r_Vol_dil_total_real": float(getattr(V, "r_Vol_dil_total_real", 0.0)),
+        "r_Vol_Dil_Total": float(getattr(V, "r_Vol_Dil_Total", 0.0)),
+        "r_Vol_Dil_Total_sc": float(getattr(V, "r_Vol_Dil_Total_sc", 0.0)),
+        "b_SW_DIL_MEDIDO_CALC": bool(getattr(V, "b_SW_DIL_MEDIDO_CALC", False)),
+        "r_Qb_Liquido_sc_Estimado": float(getattr(V, "r_Qb_Liquido_sc_Estimado", 0.0)),
+        "ad_TIEMPO_prueba_7": float(V.ad_TIEMPO_prueba[7]) if hasattr(V, "ad_TIEMPO_prueba") and len(V.ad_TIEMPO_prueba) > 7 else 0.0,
     })
 
 
@@ -923,6 +1211,19 @@ def toggle_lazos():
         V.b_PB_DESHABILITA_PID = True     # Pulso: la Fase 4 lo procesa y lo limpia
         V.b_DESHABILITA_PID = True        # Efecto inmediato para la respuesta
         logger.info("🔴 Lazos PID: pulso DESHABILITAR enviado")
+        
+    # Guardar en BD
+    try:
+        db_exec("UPDATE instrument_selection_config SET b_DESHABILITA_PID=%s WHERE id=1", (V.b_DESHABILITA_PID,), fetch=False)
+    except Exception as e:
+        logger.error(f"Error guardando b_DESHABILITA_PID en BD: {e}")
+
+    # Guardar variables retenidas
+    try:
+        from fase1_sistema import save_retained_vars
+        save_retained_vars()
+    except Exception as e:
+        logger.error(f"Error guardando variables retenidas al cambiar lazos: {e}")
     
     return jsonify({"lazos_habilitados": not V.b_DESHABILITA_PID})
 
@@ -1547,8 +1848,24 @@ def post_alarma(instrumento):
     
     # Si modo manual activo, escribir valor en V inmediatamente
     _apply_manual_override(inst_upper, modo_manual, d.get("valor_manual"))
+    
+    # Sincronizar fallas de presion (r_falla_presion_gas, r_falla_presion_crudo)
+    if inst_upper in ('PI-01', 'PI-02'):
+        _sync_falla_presion()
+        
     return jsonify({"ok": True})
 
+def _sync_falla_presion():
+    """Sincroniza V.r_falla_presion_gas y crudo con el SP_HH de PI-01 y PI-02"""
+    try:
+        rows = db_exec("SELECT instrumento, SP_HH FROM tabla_configuracion_alarma WHERE instrumento IN ('PI-01', 'PI-02')")
+        for r in (rows or []):
+            if r["instrumento"] == "PI-01" and r.get("SP_HH") is not None:
+                V.r_falla_presion_gas = float(r["SP_HH"])
+            elif r["instrumento"] == "PI-02" and r.get("SP_HH") is not None:
+                V.r_falla_presion_crudo = float(r["SP_HH"])
+    except Exception as e:
+        logger.warning(f"Error sincronizando fallas de presion: {e}")
 
 
 def _apply_manual_override(instrumento, modo_manual, valor_manual):
@@ -1561,7 +1878,9 @@ def _apply_manual_override(instrumento, modo_manual, valor_manual):
         "PDI-01":  "r_PDT_01",
         "PDI-02":  "r_PDT_02",
         "PDI-03":  "r_PDT_03",
+        "PDI-04":  "r_Transmisor_Gas",
         "PI-01":   "r_P_Gas",
+        "PI-02":   "r_P_Oil",
         "TI-01":   "r_T_Oil_C",
         "TI-02":   "r_T_Gas",
         "VI-01":   "r_v_oil_medida",
@@ -1582,6 +1901,172 @@ def _apply_manual_override(instrumento, modo_manual, valor_manual):
             if hasattr(V, tag):
                 setattr(V, tag, 0.0)
 
+
+
+# ─────────────────────────────────────────────────────────────
+# Histórico de Alarmas
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/historico_alarmas", methods=["GET"])
+def get_historico_alarmas():
+    """Consulta el histórico de alarmas con filtro de fecha."""
+    inicio = request.args.get("inicio")
+    fin    = request.args.get("fin")
+    inst   = request.args.get("instrumento")   # opcional
+    nivel  = request.args.get("nivel")          # opcional: HH, H, L, LL, OK
+
+    q = "SELECT * FROM historico_alarmas WHERE 1=1"
+    params = []
+    if inicio and fin:
+        q += " AND timestamp BETWEEN %s AND %s"
+        params += [inicio, fin]
+    if inst:
+        q += " AND instrumento = %s"
+        params.append(inst)
+    if nivel:
+        q += " AND nivel = %s"
+        params.append(nivel)
+    q += " ORDER BY timestamp DESC LIMIT 5000"
+
+    rows = db_exec(q, tuple(params)) or []
+    for r in rows:
+        if isinstance(r.get("timestamp"), datetime):
+            r["timestamp"] = r["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+    return jsonify(rows)
+
+
+@app.route("/api/historico_alarmas/excel", methods=["GET"])
+def exportar_historico_alarmas_excel():
+    """Genera y descarga un Excel con el histórico de alarmas filtrado por fecha."""
+    inicio = request.args.get("inicio")
+    fin    = request.args.get("fin")
+    inst   = request.args.get("instrumento")
+    nivel  = request.args.get("nivel")
+
+    q = "SELECT * FROM historico_alarmas WHERE 1=1"
+    params = []
+    if inicio and fin:
+        q += " AND timestamp BETWEEN %s AND %s"
+        params += [inicio, fin]
+    if inst:
+        q += " AND instrumento = %s"
+        params.append(inst)
+    if nivel:
+        q += " AND nivel = %s"
+        params.append(nivel)
+    q += " ORDER BY timestamp ASC LIMIT 15000"
+
+    rows = db_exec(q, tuple(params)) or []
+
+    # ── Crear Excel ──────────────────────────────────────────────
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Histórico de Alarmas"
+
+    font_title  = Font(name="Segoe UI", size=14, bold=True, color="FFFFFF")
+    font_header = Font(name="Segoe UI", size=10, bold=True, color="FFFFFF")
+    font_hh     = Font(name="Segoe UI", size=10, bold=True, color="FFFFFF")
+    font_ok     = Font(name="Segoe UI", size=10, color="1A5C2B")
+    font_reg    = Font(name="Segoe UI", size=10)
+
+    fill_title  = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
+    fill_header = PatternFill(start_color="244062", end_color="244062", fill_type="solid")
+    fill_hh     = PatternFill(start_color="C00000", end_color="C00000", fill_type="solid")
+    fill_h      = PatternFill(start_color="F97316", end_color="F97316", fill_type="solid")
+    fill_l      = PatternFill(start_color="FDE68A", end_color="FDE68A", fill_type="solid")
+    fill_ll     = PatternFill(start_color="7E22CE", end_color="7E22CE", fill_type="solid")
+    fill_ok     = PatternFill(start_color="D1FAE5", end_color="D1FAE5", fill_type="solid")
+    fill_zebra  = PatternFill(start_color="F2F5F8", end_color="F2F5F8", fill_type="solid")
+    align_c     = Alignment(horizontal="center", vertical="center")
+    align_l     = Alignment(horizontal="left",   vertical="center")
+    thin        = Side(border_style="thin", color="BFBFBF")
+    border      = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # Título
+    ws.merge_cells("A1:G1")
+    ws["A1"] = "HISTÓRICO DE ALARMAS — MFM ORINOCO"
+    ws["A1"].font      = font_title
+    ws["A1"].fill      = fill_title
+    ws["A1"].alignment = align_c
+
+    # Rango consultado
+    ws.merge_cells("A2:G2")
+    rango_txt = f"Período: {inicio or 'inicio'} → {fin or 'ahora'}"
+    if inst:  rango_txt += f"  |  Instrumento: {inst}"
+    if nivel: rango_txt += f"  |  Nivel: {nivel}"
+    ws["A2"] = rango_txt
+    ws["A2"].font      = Font(name="Segoe UI", size=9, italic=True, color="666666")
+    ws["A2"].alignment = align_c
+
+    ws.row_dimensions[1].height = 30
+    ws.row_dimensions[2].height = 16
+
+    # Encabezados
+    headers = ["#", "Fecha / Hora", "Instrumento", "Descripción", "Unidad", "Valor", "Nivel Alarma", "SP Activo"]
+    cols    = ["A", "B", "C", "D", "E", "F", "G", "H"]
+    ws.merge_cells("A1:H1")   # re-merge con 8 cols
+    for i, (h, c) in enumerate(zip(headers, cols), 1):
+        cell = ws[f"{c}3"]
+        cell.value     = h
+        cell.font      = font_header
+        cell.fill      = fill_header
+        cell.alignment = align_c
+        cell.border    = border
+
+    ws.row_dimensions[3].height = 20
+    ws.column_dimensions["A"].width = 6
+    ws.column_dimensions["B"].width = 20
+    ws.column_dimensions["C"].width = 12
+    ws.column_dimensions["D"].width = 38
+    ws.column_dimensions["E"].width = 10
+    ws.column_dimensions["F"].width = 12
+    ws.column_dimensions["G"].width = 12
+    ws.column_dimensions["H"].width = 12
+
+    # Filas de datos
+    nivel_fills = {"HH": fill_hh, "H": fill_h, "L": fill_l, "LL": fill_ll, "OK": fill_ok}
+    nivel_fonts = {"HH": font_hh, "H": font_hh, "L": font_reg, "LL": font_hh, "OK": font_ok}
+
+    for idx, r in enumerate(rows, 1):
+        row_num = idx + 3
+        ts = r.get("timestamp")
+        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S") if isinstance(ts, datetime) else str(ts)
+        niv = r.get("nivel", "")
+        row_fill  = nivel_fills.get(niv, fill_zebra if idx % 2 == 0 else None)
+        row_font  = nivel_fonts.get(niv, font_reg)
+
+        data = [idx, ts_str, r.get("instrumento",""), r.get("descripcion",""),
+                r.get("unidad",""), r.get("valor",""), niv, r.get("sp_activo","")]
+
+        for ci, (c, v) in enumerate(zip(cols, data)):
+            cell = ws[f"{c}{row_num}"]
+            cell.value     = v
+            cell.font      = row_font
+            cell.border    = border
+            cell.alignment = align_c if ci not in (3,) else align_l
+            if row_fill:
+                cell.fill = row_fill
+
+        ws.row_dimensions[row_num].height = 16
+
+    ws.freeze_panes = "A4"
+    ws.auto_filter.ref = f"A3:H{3 + len(rows)}"
+
+    # Total alarmas summary al pie
+    footer_row = 4 + len(rows) + 1
+    ws[f"A{footer_row}"] = f"Total registros: {len(rows)}"
+    ws[f"A{footer_row}"].font = Font(name="Segoe UI", size=9, bold=True, color="444444")
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"Historico_Alarmas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=fname,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1685,7 +2170,10 @@ def descargar_reporte():
         pivoted[ts_str][r["instrumento"]] = r["valor"]
         
     sorted_ts = sorted(pivoted.keys())
-    instrumentos_orden = ["FI-03", "PI-01", "TI-01", "LI-01", "PDI-01", "PDI-03", "PDI-02", "TI-02", "GAS-01", "VI-01"]
+    instrumentos_orden = [
+        "FI-03", "PI-01", "TI-01", "LI-01", "PDI-01", "PDI-03", "PDI-02", "TI-02", "GAS-01", "VI-01",
+        "WC", "Q_LIQ", "Q_CRUDO", "Q_NETO", "Q_DIL", "Q_AGUA", "Q_GAS"
+    ]
     
     descripciones = {
         "FI-03": "Flujo Gas Vortex",
@@ -1698,6 +2186,13 @@ def descargar_reporte():
         "TI-02": "Temperatura Proceso",
         "GAS-01": "Porcentaje de Gas",
         "VI-01": "Viscosidad del Crudo",
+        "WC": "Corte de Agua",
+        "Q_LIQ": "Caudal Líquido Medido",
+        "Q_CRUDO": "Caudal Crudo Medido",
+        "Q_NETO": "Caudal Neto Medido",
+        "Q_DIL": "Caudal Diluente Medido",
+        "Q_AGUA": "Caudal Agua Medido",
+        "Q_GAS": "Caudal Gas Medido"
     }
     unidades = {
         "FI-03": "MSCFD",
@@ -1710,6 +2205,13 @@ def descargar_reporte():
         "TI-02": "°C",
         "GAS-01": "%",
         "VI-01": "CP",
+        "WC": "%",
+        "Q_LIQ": "BBLD",
+        "Q_CRUDO": "BBLD",
+        "Q_NETO": "BBLD",
+        "Q_DIL": "BBLD",
+        "Q_AGUA": "BBLD",
+        "Q_GAS": "MCFD"
     }
     try:
         db_descs = db_exec("SELECT instrumento, descripcion, unidad FROM tabla_configuracion_alarma")
@@ -1846,7 +2348,7 @@ def descargar_reporte():
     r_idx = 1
     
     # Fila 1: Título unificado
-    ws.merge_cells("A1:K1")
+    ws.merge_cells("A1:R1")
     ws["A1"] = "REPORTE DE PROCESO Y PRUEBAS - MFM ORINOCO"
     ws["A1"].font = font_title
     ws["A1"].fill = fill_title
@@ -1863,7 +2365,7 @@ def descargar_reporte():
     if prueba_meta:
         ws.cell(row=r_idx, column=1, value="DATOS DE LA PRUEBA DE POZO").font = font_section
         ws.row_dimensions[r_idx].height = 24
-        for col_idx in range(1, 12):
+        for col_idx in range(1, 19):
             ws.cell(row=r_idx, column=col_idx).border = bottom_line
         r_idx += 1
         
@@ -1911,7 +2413,7 @@ def descargar_reporte():
     elif f_inicio and f_fin:
         ws.cell(row=r_idx, column=1, value="RANGO DE FECHAS SELECCIONADO").font = font_section
         ws.row_dimensions[r_idx].height = 24
-        for col_idx in range(1, 12):
+        for col_idx in range(1, 19):
             ws.cell(row=r_idx, column=col_idx).border = bottom_line
         r_idx += 1
         
@@ -1925,7 +2427,7 @@ def descargar_reporte():
     # Tabla de Tags/Instrumentos
     ws.cell(row=r_idx, column=1, value="INFORMACIÓN DE INSTRUMENTOS (TAGS)").font = font_section
     ws.row_dimensions[r_idx].height = 24
-    for col_idx in range(1, 12):
+    for col_idx in range(1, 19):
         ws.cell(row=r_idx, column=col_idx).border = bottom_line
     r_idx += 1
     
@@ -1959,7 +2461,7 @@ def descargar_reporte():
     # Histórico de Lecturas
     ws.cell(row=r_idx, column=1, value="HISTÓRICO DE LECTURAS (DATOS DE PROCESO)").font = font_section
     ws.row_dimensions[r_idx].height = 24
-    for col_idx in range(1, 12):
+    for col_idx in range(1, 19):
         ws.cell(row=r_idx, column=col_idx).border = bottom_line
     r_idx += 1
     
@@ -2267,6 +2769,23 @@ def daq_live():
     if stale and not last_error:
         last_error = f"Sin datos hace {round(data_age_s, 1)} s"
 
+    import fase8_salidas as _f8
+    ao_channels = []
+    for (var_name, modbus_addr, scale_min, scale_max, desc) in getattr(_f8, '_OUTPUT_MAP', []):
+        val_raw = float(getattr(_V_plc, var_name, scale_min) or scale_min)
+        val_eu = 0.0
+        if scale_max > scale_min:
+            val_eu = (val_raw - scale_min) / (scale_max - scale_min) * 100.0
+            
+        ao_channels.append({
+            "ch": modbus_addr,
+            "var": var_name,
+            "desc": desc,
+            "val_eu": round(val_eu, 2),
+            "val_raw": round(val_raw, 1),
+            "addr": modbus_addr
+        })
+
     return jsonify({
         "connected":   connected,
         "stale":       stale,
@@ -2276,11 +2795,48 @@ def daq_live():
         "slave_id":    _mdaq.DAQ_SLAVE_ID,
         "simulating":  V.b_simular_ai,
         "channels":    snapshot,
+        "ao_channels": ao_channels,
         "last_error":  last_error,
         "retry_in_s":  round(cooldown_left, 1),
         "ts":          datetime.now().strftime("%H:%M:%S"),
     })
 
+
+@app.route("/api/instrument_selection", methods=["POST"])
+def save_instrument_selection():
+    """Guarda la configuración de selección de instrumentos en la BD y recarga a memoria."""
+    d = request.get_json() or {}
+    try:
+        db_exec(
+            """UPDATE instrument_selection_config SET
+               b_Control_PID_Gas = %s, b_PID_POSIC_SW = %s,
+               b_Sw_Wedge_Gas = %s, b_SW_DIL_MEDIDO_CALC = %s,
+               b_Sw_Wedge_Gas_2 = %s, b_SEL_LAMINAR = %s, b_SEL_T_baja = %s,
+               b_sw_AM_Laminar_Wedge_x = %s, b_sw_AM_Laminar_Wedge_y = %s,
+               b_sel_tipo_instrum_dil = %s, b_AUTO_GAS_01 = %s,
+               b_SEL_VLV_GAS_01 = %s, b_DESHABILITA_PID = %s
+               WHERE id = 1""",
+            (
+                bool(d.get("b_Control_PID_Gas", False)),
+                bool(d.get("b_PID_POSIC_SW", False)),
+                bool(d.get("b_Sw_Wedge_Gas", False)),
+                bool(d.get("b_SW_DIL_MEDIDO_CALC", False)),
+                bool(d.get("b_Sw_Wedge_Gas_2", False)),
+                bool(d.get("b_SEL_LAMINAR", False)),
+                bool(d.get("b_SEL_T_baja", False)),
+                bool(d.get("b_sw_AM_Laminar_Wedge_x", True)),
+                bool(d.get("b_sw_AM_Laminar_Wedge_y", False)),
+                bool(d.get("b_sel_tipo_instrum_dil", False)),
+                bool(d.get("b_AUTO_GAS_01", False)),
+                bool(d.get("b_SEL_VLV_GAS_01", False)),
+                bool(d.get("b_DESHABILITA_PID", False)),
+            )
+        )
+        _load_instrument_selection_from_db()  # Recargar a V global
+        return jsonify({"ok": True})
+    except Exception as e:
+        print("Error saving instrument selection:", e)
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/daq/config", methods=["GET"])
@@ -2329,6 +2885,52 @@ def daq_save_config():
     
     # Recargar la configuración en caliente
     _load_daq_channels_from_db()
+    
+    return jsonify({"ok": True, "channel_addr": d["channel_addr"]})
+
+@app.route("/api/daq/ao_config", methods=["GET"])
+def daq_get_ao_config():
+    """Lee la configuración de canales AO desde la BD (tabla daq_ao_config)."""
+    rows = db_exec("SELECT * FROM daq_ao_config ORDER BY channel_addr")
+    return jsonify(rows or [])
+
+@app.route("/api/daq/ao_config", methods=["POST"])
+def daq_save_ao_config():
+    """
+    Guarda (UPSERT) la configuración de un canal AO en la BD.
+    Payload: { channel_addr, v_name, description, scale_min, scale_max, enabled, modbus_addr }
+    """
+    d = request.get_json() or {}
+    required = ["channel_addr", "v_name", "description"]
+    if not all(k in d for k in required):
+        return jsonify({"error": "Faltan campos requeridos"}), 400
+
+    db_exec(
+        """INSERT INTO daq_ao_config
+             (channel_addr, v_name, description, scale_min, scale_max, enabled, modbus_addr)
+           VALUES (%s,%s,%s,%s,%s,%s,%s)
+           ON DUPLICATE KEY UPDATE
+             v_name=%s, description=%s, scale_min=%s,
+             scale_max=%s, enabled=%s, modbus_addr=%s, updated_at=NOW()""",
+        (
+            int(d["channel_addr"]),
+            d["v_name"], d["description"],
+            float(d.get("scale_min", 4000.0)),
+            float(d.get("scale_max", 20000.0)),
+            bool(d.get("enabled", True)),
+            int(d.get("modbus_addr", d["channel_addr"])),
+            # ON DUPLICATE KEY values:
+            d["v_name"], d["description"],
+            float(d.get("scale_min", 4000.0)),
+            float(d.get("scale_max", 20000.0)),
+            bool(d.get("enabled", True)),
+            int(d.get("modbus_addr", d["channel_addr"])),
+        ),
+        fetch=False,
+    )
+    
+    # Recargar la configuración en caliente
+    _load_daq_ao_from_db()
     
     return jsonify({"ok": True, "channel_addr": d["channel_addr"]})
 
@@ -2652,17 +3254,45 @@ def ws_update_pid(data):
     if tag == "LIC-01":
         if "modo" in data:       V.b_MAN_LC                  = (data["modo"] == "Manual")
         if "SP" in data:         V.r_LEVEL_PID_SP             = float(data["SP"])
-        if "CV_manual" in data:  V.r_LEVEL_PID_03_CVOverride  = float(data["CV_manual"])
+        if "CV_manual" in data:  
+            V.r_LEVEL_PID_03_CVOverride  = float(data["CV_manual"])
+            V.r_LEVEL_PID_03_CVOper      = float(data["CV_manual"])
         if "Kp" in data:         V.r_LEVEL_PID_03_KP          = float(data["Kp"])
         if "Ki" in data:         V.r_LEVEL_PID_03_KI          = float(data["Ki"])
         if "Kd" in data:         V.r_LEVEL_PID_03_KD          = float(data["Kd"])
+        # Persistir en DB
+        try:
+            db_exec(
+                "UPDATE configuracion_actual SET modo=%s,SP=%s,CV_manual=%s,Kp=%s,Ki=%s,Kd=%s WHERE instrumento=%s",
+                ("Manual" if V.b_MAN_LC else "Auto", V.r_LEVEL_PID_SP,
+                 V.r_LEVEL_PID_03_CVOverride, V.r_LEVEL_PID_03_KP,
+                 V.r_LEVEL_PID_03_KI, V.r_LEVEL_PID_03_KD, "LIC-01"),
+                fetch=False
+            )
+        except Exception as e:
+            logger.error(f"Error guardando PID LIC-01 en BD (WS): {e}")
+
     elif tag == "PIC-01":
         if "modo" in data:       V.b_MAN_PC                   = (data["modo"] == "Manual")
         if "SP" in data:         V.r_PRESS_PID_SP             = float(data["SP"])
-        if "CV_manual" in data:  V.r_PRESS_PID_03_CVOverride  = float(data["CV_manual"])
+        if "CV_manual" in data:  
+            V.r_PRESS_PID_03_CVOverride  = float(data["CV_manual"])
+            V.r_PRESS_PID_03_CVOper      = float(data["CV_manual"])
         if "Kp" in data:         V.r_PRESS_PID_03_KP          = float(data["Kp"])
         if "Ki" in data:         V.r_PRESS_PID_03_KI          = float(data["Ki"])
         if "Kd" in data:         V.r_PRESS_PID_03_KD          = float(data["Kd"])
+        # Persistir en DB
+        try:
+            db_exec(
+                "UPDATE configuracion_actual SET modo=%s,SP=%s,CV_manual=%s,Kp=%s,Ki=%s,Kd=%s WHERE instrumento=%s",
+                ("Manual" if V.b_MAN_PC else "Auto", V.r_PRESS_PID_SP,
+                 V.r_PRESS_PID_03_CVOverride, V.r_PRESS_PID_03_KP,
+                 V.r_PRESS_PID_03_KI, V.r_PRESS_PID_03_KD, "PIC-01"),
+                fetch=False
+            )
+        except Exception as e:
+            logger.error(f"Error guardando PID PIC-01 en BD (WS): {e}")
+
     emit("pid_updated", {"instrumento": tag, "ok": True}, broadcast=True)
 
 
@@ -2676,6 +3306,20 @@ def ws_toggle_lazos(_data=None):
         # Quiere deshabilitar
         V.b_PB_DESHABILITA_PID = True
         V.b_DESHABILITA_PID = True
+        
+    # Guardar en BD
+    try:
+        db_exec("UPDATE instrument_selection_config SET b_DESHABILITA_PID=%s WHERE id=1", (V.b_DESHABILITA_PID,), fetch=False)
+    except Exception as e:
+        logger.error(f"Error guardando b_DESHABILITA_PID en BD (WS): {e}")
+
+    # Guardar variables retenidas
+    try:
+        from fase1_sistema import save_retained_vars
+        save_retained_vars()
+    except Exception as e:
+        logger.error(f"Error guardando variables retenidas al cambiar lazos (WS): {e}")
+        
     emit("lazos_status", {"lazos_habilitados": not V.b_DESHABILITA_PID}, broadcast=True)
 
 
@@ -2698,6 +3342,13 @@ if __name__ == "__main__":
 
     # -- Restaurar mapeo de canales DAQ desde BD --
     _load_daq_channels_from_db()
+    _load_daq_ao_from_db()
+
+    # -- Restaurar seleccion de instrumentos y estado de lazos desde BD --
+    _load_instrument_selection_from_db()
+
+    # -- Restaurar parametros de lazos PID (configuracion_actual) desde BD --
+    _load_configuracion_actual_from_db()
 
     # -- Restaurar overrides manuales de instrumentos desde BD --
     try:
@@ -2708,6 +3359,9 @@ if __name__ == "__main__":
         print("  [OK] Overrides manuales restaurados desde BD")
     except Exception as _em:
         print(f"  [WARN] No se pudieron restaurar overrides manuales: {_em}")
+
+    # -- Sincronizar fallas de presion con limites de PI-01 y PI-02 --
+    _sync_falla_presion()
 
     # -- Restaurar configuracion de prueba de pozo desde BD --
     _init_and_load_prueba_config()

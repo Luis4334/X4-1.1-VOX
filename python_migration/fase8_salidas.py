@@ -25,27 +25,50 @@ from modbus_daq import get_client, mark_disconnected, DAQ_SLAVE_ID
 logger = logging.getLogger("orinoco.fase8.salidas")
 
 # ─────────────────────────────────────────────────────────────
-# MAPA DE SALIDAS ANALÓGICAS MODBUS
-# TODO: Sustituye las direcciones con las de tu mapa de registros real
+# MAPA DE SALIDAS ANALÓGICAS MODBUS  — ICP DAS M-7026
 # ─────────────────────────────────────────────────────────────
 #
-# Formato: (fuente_en_V,           addr,  escala,  clamp_min, clamp_max, desc)
-#   escala: multiplicador para convertir EU% (0-100) al entero de la DAQ
-#           Ej: 65.5% × 100 → 6550  |  65.5% × 327.67 → 21462 (rango 0-32767)
+# El M-7026 en el tab AO del DCON Utility muestra:
+#   Range: 4000~20000   (sin "Engineering format")
+#   4000  = 4 mA
+#   20000 = 20 mA
 #
-_SALIDA_SCALE = 100.0   # TODO: Cambia a 327.67 si tu DAQ usa rango 0-32767
-                         #       o a 10.0 si usa rango 0-1000, etc.
+# La variable interna V.r_Local_2_O_ChXData ya viene en este
+# rango exacto (salida del bloque FB_SCL con EUmin=4000,
+# EUmax=20000), así que se escribe DIRECTAMENTE sin conversión.
+#
+# Registros Holding (FC6):
+#   AO Channel 0 → Modbus address 0  (40001)
+#   AO Channel 1 → Modbus address 1  (40002)
+#
+# Formato tuple: (var_en_V, addr_modbus, scale_min, scale_max, desc)
+# ─────────────────────────────────────────────────────────────
 
 _OUTPUT_MAP = [
-    # Variable escalada del PLC → dirección Modbus → escala → clamp_min → clamp_max → descripción
-    ("r_Local_2_O_Ch0Data",  20, 1.0, 4000, 20000, "LCV-01 Válvula Nivel   [4000-20000 mA]"),
-    ("r_Local_2_O_Ch1Data",  21, 1.0, 4000, 20000, "PCV-01 Válvula Presión [4000-20000 mA]"),
+    # (variable_en_V,          addr, scale_min, scale_max, descripción)
+    ("r_Local_2_O_Ch0Data",    0,    4000.0,    20000.0,   "LCV-01 Válvula Nivel   [AO CH0]"),
+    ("r_Local_2_O_Ch1Data",    1,    4000.0,    20000.0,   "PCV-01 Válvula Presión [AO CH1]"),
 ]
+
+def _eu_to_raw_m7026(eu_val: float, min_val: float = 4000.0, max_val: float = 20000.0) -> int:
+    """
+    El M-7026 usa el rango scale_min-scale_max (ej. 4000-20000) directamente para 4-20mA.
+    La variable interna ya viene en ese rango → sin conversión.
+      4000  = 4 mA  (mínimo físico)
+      12000 = 12 mA (50%)
+      20000 = 20 mA (máximo físico)
+    """
+    return int(max(min_val, min(max_val, eu_val)))
 
 # ─────────────────────────────────────────────────────────────
 # Salidas digitales (relés)
-# TODO: Ajusta direcciones de coils a tu mapa real
+# NOTA: Los coils addr=0 y addr=1 se deshabilitan temporalmente
+# porque el M-7026 puede usar el mismo espacio de dirección
+# que los registros AO (addr=0 y addr=1). Habilitar solo si
+# tienes un módulo DO separado con su propio slave ID.
 # ─────────────────────────────────────────────────────────────
+_COIL_DISABLED = True   # ← Cambiar a False si hay módulo DO separado
+
 _COIL_MAP = [
     # (variable_en_V,      addr,  descripción)
     ("b_Local_1_O_Data_0", 0,    "VLV-01 (NOT b_VLV_01)"),   # TODO addr coil
@@ -55,16 +78,22 @@ _COIL_MAP = [
 
 def _escribir_salidas_analogicas(client) -> bool:
     """
-    Escribe las CVs de los PIDs como registros Modbus en la DAQ.
+    Escribe las CVs de los PIDs como registros Modbus en la DAQ M-7026.
+    Convierte el valor interno (4000-20000, escala mA×1000) al formato
+    Hex 12-bit que espera el M-7026 (0-4095 para 4-20mA).
     Retorna True si todas las escrituras fueron exitosas.
     """
     ok = True
-    for (var_name, addr, escala, vmin, vmax, desc) in _OUTPUT_MAP:
+    for (var_name, addr, scale_min, scale_max, desc) in _OUTPUT_MAP:
         try:
-            eu_val   = float(getattr(V, var_name, 0.0))
-            raw_int  = int(max(vmin, min(vmax, eu_val * escala)))
+            eu_val  = float(getattr(V, var_name, scale_min))
+            raw_int = _eu_to_raw_m7026(eu_val, scale_min, scale_max)
+            ma_val  = 4.0 + (eu_val - scale_min) / (scale_max - scale_min) * 16.0
 
-            logger.info(f"→ Enviando peticion Modbus RTU: write_register(addr={addr}, value={raw_int}, slave={DAQ_SLAVE_ID})")
+            logger.info(
+                f"→ AO write_register(addr={addr}, value={raw_int}"
+                f", {ma_val:.2f}mA) [{desc}]"
+            )
             result = client.write_register(
                 address=addr,
                 value=raw_int,
@@ -72,13 +101,21 @@ def _escribir_salidas_analogicas(client) -> bool:
             )
 
             if result.isError():
-                logger.warning(f"Error escribiendo {desc} addr={addr}: {result}")
+                logger.warning(f"⚠️ Error escribiendo {desc} addr={addr}: {result}")
                 ok = False
             else:
-                logger.debug(f"Salida {desc}: {eu_val:.2f}% → reg[{addr}]={raw_int}")
+                # Leer de vuelta para confirmar que el hardware acepto el valor
+                try:
+                    rb = client.read_holding_registers(address=addr, count=1, slave=DAQ_SLAVE_ID)
+                    if not rb.isError():
+                        logger.info(f"✅ {desc}: sent={raw_int} readback={rb.registers[0]} ({ma_val:.2f}mA)")
+                    else:
+                        logger.warning(f"⚠️ {desc}: write OK pero readback fallo: {rb}")
+                except Exception as rbe:
+                    logger.warning(f"⚠️ {desc}: write OK pero readback excepcion: {rbe}")
 
         except Exception as e:
-            logger.error(f"Excepción escribiendo {desc}: {e}")
+            logger.error(f"❌ Excepción escribiendo {desc}: {e}")
             ok = False
 
     return ok
@@ -88,7 +125,13 @@ def _escribir_salidas_digitales(client) -> bool:
     """
     Escribe los coils (salidas digitales / relés) en la DAQ.
     Retorna True si todas las escrituras fueron exitosas.
+    Si _COIL_DISABLED = True, omite las escrituras para evitar
+    interferir con los registros AO en el mismo espacio de direcciones.
     """
+    if _COIL_DISABLED:
+        logger.debug("Coils deshabilitados (_COIL_DISABLED=True) — omitiendo escritura DO")
+        return True
+
     ok = True
     for (var_name, addr, desc) in _COIL_MAP:
         try:

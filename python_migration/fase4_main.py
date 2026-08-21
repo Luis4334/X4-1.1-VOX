@@ -92,10 +92,9 @@ def f05a_get_controller_status():
     V.b_KEY_SWITCH_REM_RUN = False
 
     # Rung 3: PID habilitado (igual que P05_MAIN Rung 0)
-    if V.b_primer_scan or V.b_PB_DESHABILITA_PID:
+    if V.b_PB_DESHABILITA_PID:
         V.b_DESHABILITA_PID = True
-        if V.b_DESHABILITA_PID:
-            V.b_PB_DESHABILITA_PID = False
+        V.b_PB_DESHABILITA_PID = False
     if V.b_DESHABILITA_PID and V.b_PB_HABILITA_PID:
         V.b_DESHABILITA_PID = False
         V.b_PB_HABILITA_PID = False
@@ -106,82 +105,53 @@ def f05a_get_controller_status():
 # ─────────────────────────────────────────────────────────────────────────────
 def f05b_analogicas():
     """Migrado de F05B_MAI.LSF. Escalamiento de señales analógicas."""
+    overrides = getattr(V, 'instrument_overrides', {})
+
     # Viscosidad: VI / densidad → selector manual/auto → HLL
-    _fb_DIV_02.execute(V.r_VI_MAN, V.r_d_m_PT_2)
-    _fb_SEL_01_mp.execute(_fb_DIV_02.r_Out, V.r_visco_modbus, V.b_VI_SW)
-    lo, hi = _hll_mp(1)
-    _fb_HLL_mp[1].execute(_fb_SEL_01_mp.r_Out, lo, hi)
-    V.r_v_oil_medida = _fb_HLL_mp[1].r_Out
+    if "r_v_oil_medida" not in overrides:
+        _fb_DIV_02.execute(V.r_VI_MAN, V.r_d_m_PT_2)
+        _fb_SEL_01_mp.execute(_fb_DIV_02.r_Out, V.r_visco_modbus, V.b_VI_SW)
+        lo, hi = _hll_mp(1)
+        _fb_HLL_mp[1].execute(_fb_SEL_01_mp.r_Out, lo, hi)
+        V.r_v_oil_medida = _fb_HLL_mp[1].r_Out
 
     # WC: señal analógica escalada → selector manual/auto → HLL
-    rm, rx, em, ex = _scl_params('WC')
-    _fb_SCL['WC'].execute(V.r_Local_4_I_Ch7Data, rm, rx, em, ex)
-    _fb_SEL_06_mp.execute(float(V.i_WC_MAN), _fb_SCL['WC'].r_Out, V.b_WC_SW)
-    lo, hi = _hll_mp(2)
-    _fb_HLL_mp[2].execute(_fb_SEL_06_mp.r_Out, lo, hi)
-    V.r_WC = _fb_HLL_mp[2].r_Out
+    if "r_WC" not in overrides:
+        rm, rx, em, ex = _scl_params('WC')
+        _fb_SCL['WC'].execute(V.r_Local_4_I_Ch7Data, rm, rx, em, ex)
+        _fb_SEL_06_mp.execute(float(V.i_WC_MAN), _fb_SCL['WC'].r_Out, V.b_WC_SW)
+        lo, hi = _hll_mp(2)
+        _fb_HLL_mp[2].execute(_fb_SEL_06_mp.r_Out, lo, hi)
+        V.r_WC = _fb_HLL_mp[2].r_Out
 
     # GVF: selector manual/Modbus → HLL
-    _fb_SEL_05_mp.execute(float(V.i_GVF_MAN), V.r_GVF_modbus_data, V.b_GVF_SW)
-    lo, hi = _hll_mp(3)
-    _fb_HLL_mp[3].execute(_fb_SEL_05_mp.r_Out, lo, hi)
-    V.r_GVoidF = _fb_HLL_mp[3].r_Out
+    if "r_GVoidF" not in overrides:
+        _fb_SEL_05_mp.execute(float(V.i_GVF_MAN), V.r_GVF_modbus_data, V.b_GVF_SW)
+        lo, hi = _hll_mp(3)
+        _fb_HLL_mp[3].execute(_fb_SEL_05_mp.r_Out, lo, hi)
+        V.r_GVoidF = _fb_HLL_mp[3].r_Out
 
-    # LIT: nivel de tanque
-    rm, rx, em, ex = _scl_params('LIT')
-    _fb_SCL['LIT'].execute(V.r_Local_2_I_Ch0Data, rm, rx, em, ex)
-    lo, hi = (getattr(V,'r_HLL_04_mp_LowLimit',0.0),
-              getattr(V,'r_HLL_04_mp_HighLimit',1e9))
-    _fb_HLL_mp[4].execute(_fb_SCL['LIT'].r_Out, lo, hi)
-    V.r_LIT_001 = _fb_HLL_mp[4].r_Out
+    # Las demás variables (LIT_001, T_Oil_C, Transmisor_Gas, P_Gas, T_Gas, Q_DIL_MEDIDO)
+    # ya se escalan en fase2_entradas.py con protección de HART/Overrides.
+    # Solo actualizamos los bloques secundarios que dependen de ellas para alarmas:
 
-    # T_Oil: temperatura aceite
-    rm, rx, em, ex = _scl_params('TIT')
-    _fb_SCL['TIT'].execute(V.r_Local_4_I_Ch2Data, rm, rx, em, ex)
-    lo, hi = _hll_mp(7)
-    _fb_HLL_mp[7].execute(_fb_SCL['TIT'].r_Out, lo, hi)
-    V.r_T_Oil_C = _fb_HLL_mp[7].r_Out
     # Señal de salida para fallo S3
     rm2, rx2, em2, ex2 = (V.r_SCL_TIT_B_InRawMin, V.r_SCL_TIT_B_InRawMax,
                           V.r_SCL_TIT_B_InEUMin,  V.r_SCL_TIT_B_InEUMax)
-    _fb_SCL['TIT_B'].execute(_fb_HLL_mp[7].r_Out, rm2, rx2, em2, ex2)
+    _fb_SCL['TIT_B'].execute(V.r_T_Oil_C, rm2, rx2, em2, ex2)
     V.r_Salida_Falt_S3OCh2 = _fb_SCL['TIT_B'].r_Out
 
-    # Transmisor Gas (o DP Gas según switch)
+    # Transmisor Gas (selector Wedge/Vortex usado en otras rutinas)
     _fb_SEL_03_pr.execute(V.r_Local_2_I_Ch2Data,
                           V.r_Local_4_I_Ch3Data,
                           V.b_Sw_Wedge_Gas)
-    rm, rx, em, ex = _scl_params('VORTEX_Q_01')
-    _fb_SCL['VORTEX_Q_01'].execute(_fb_SEL_03_pr.r_Out, rm, rx, em, ex)
-    lo, hi = _hll_mp(16)
-    _fb_HLL_mp[16].execute(_fb_SCL['VORTEX_Q_01'].r_Out, lo, hi)
-    V.r_Transmisor_Gas = _fb_HLL_mp[16].r_Out
     V.fb_SEL_03_pr_r_Out = _fb_SEL_03_pr.r_Out
 
-    # P_Gas: presión de gas
-    rm, rx, em, ex = _scl_params('PT')
-    _fb_SCL['PT'].execute(V.r_Local_4_I_Ch4Data, rm, rx, em, ex)
-    lo, hi = _hll_mp(18)
-    _fb_HLL_mp[18].execute(_fb_SCL['PT'].r_Out, lo, hi)
-    V.r_P_Gas = _fb_HLL_mp[18].r_Out
+    # Señal de salida para fallo PIT_B_01
     rm2 = V.r_SCL_PIT_B_01_InRawMin;  rx2 = V.r_SCL_PIT_B_01_InRawMax
     em2 = V.r_SCL_PIT_B_01_InEUMin;   ex2 = V.r_SCL_PIT_B_01_InEUMax
-    _fb_SCL['PIT_B_01'].execute(_fb_HLL_mp[18].r_Out, rm2, rx2, em2, ex2)
+    _fb_SCL['PIT_B_01'].execute(V.r_P_Gas, rm2, rx2, em2, ex2)
     V.r_Salida_falt_L3OCh3 = _fb_SCL['PIT_B_01'].r_Out
-
-    # T_Gas: temperatura gas
-    rm, rx, em, ex = _scl_params('VORTEX_T_01')
-    _fb_SCL['VORTEX_T_01'].execute(V.r_Local_4_I_Ch5Data, rm, rx, em, ex)
-    lo, hi = _hll_mp(17)
-    _fb_HLL_mp[17].execute(_fb_SCL['VORTEX_T_01'].r_Out, lo, hi)
-    V.r_T_Gas = _fb_HLL_mp[17].r_Out
-
-    # Q_DIL_MEDIDO: caudal de diluente medido
-    rm, rx, em, ex = _scl_params('FIT_05')
-    _fb_SCL['FIT_05'].execute(V.r_flujo_dil_4_20mA, rm, rx, em, ex)
-    lo, hi = _hll_mp(15)
-    _fb_HLL_mp[15].execute(_fb_SCL['FIT_05'].r_Out, lo, hi)
-    V.r_Q_DIL_MEDIDO = _fb_HLL_mp[15].r_Out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -189,42 +159,20 @@ def f05b_analogicas():
 # ─────────────────────────────────────────────────────────────────────────────
 def f05c_wedge_laminar():
     """Migrado de F05C_MAI.LSF. Escala PDT_01, PDT_02, PDT_03, P_Oil y nivel."""
-    # PDT_01 (transmisor FT_01, baja presión diferencial)
-    rm, rx, em, ex = _scl_params('FT_01')
-    _fb_SCL['FT_01'].execute(V.r_Local_2_I_Ch1Data, rm, rx, em, ex)
-    lo, hi = _hll_mp(5)
-    _fb_HLL_mp[5].execute(_fb_SCL['FT_01'].r_Out, lo, hi)
-    V.r_PDT_01 = _fb_HLL_mp[5].r_Out
+    overrides = getattr(V, 'instrument_overrides', {})
 
-    # PDT_03 (transmisor FT_04)
-    rm, rx, em, ex = _scl_params('FT_04')
-    _fb_SCL['FT_04'].execute(V.r_Local_2_I_Ch3Data, rm, rx, em, ex)
-    lo, hi = _hll_mp(13)
-    _fb_HLL_mp[13].execute(_fb_SCL['FT_04'].r_Out, lo, hi)
-    V.r_PDT_03 = _fb_HLL_mp[13].r_Out
-
-    # PDT_02 (transmisor FT_02, wedge)
-    rm, rx, em, ex = _scl_params('FT_02')
-    _fb_SCL['FT_02'].execute(V.r_Local_4_I_Ch0Data, rm, rx, em, ex)
-    lo, hi = _hll_mp(6)
-    _fb_HLL_mp[6].execute(_fb_SCL['FT_02'].r_Out, lo, hi)
-    V.r_PDT_02 = _fb_HLL_mp[6].r_Out
-
-    # P_Oil (presión de crudo, transmisor DP_01)
-    rm, rx, em, ex = _scl_params('DP_01')
-    _fb_SCL['DP_01'].execute(V.r_Local_4_I_Ch1Data, rm, rx, em, ex)
-    lo, hi = _hll_mp(12)
-    _fb_HLL_mp[12].execute(_fb_SCL['DP_01'].r_Out, lo, hi)
-    V.r_P_Oil = _fb_HLL_mp[12].r_Out
-
+    # Las variables PDT_01, PDT_03, PDT_02 y P_Oil ya se escalan en fase2_entradas.py
+    # con su respectiva protección para HART y overrides manuales.
+    
     # Nivel auxiliar / Simeflum
-    rm, rx, em, ex = _scl_params('nivel_aux')
-    _fb_SCL['nivel_aux'].execute(V.r_nivel_aux_4_20mA, rm, rx, em, ex)
-    _fb_HLL_nivel_aux.execute(_fb_SCL['nivel_aux'].r_Out,
-                              V.r_HLL_nivel_aux_LowLimit,
-                              V.r_HLL_nivel_aux_HighLimit)
-    V.r_DP_Simeflum = _fb_HLL_nivel_aux.r_Out
-    V.r_nivel_aux   = V.r_DP_Simeflum
+    if "r_nivel_aux" not in overrides and "r_DP_Simeflum" not in overrides:
+        rm, rx, em, ex = _scl_params('nivel_aux')
+        _fb_SCL['nivel_aux'].execute(V.r_nivel_aux_4_20mA, rm, rx, em, ex)
+        _fb_HLL_nivel_aux.execute(_fb_SCL['nivel_aux'].r_Out,
+                                  V.r_HLL_nivel_aux_LowLimit,
+                                  V.r_HLL_nivel_aux_HighLimit)
+        V.r_DP_Simeflum = _fb_HLL_nivel_aux.r_Out
+        V.r_nivel_aux   = V.r_DP_Simeflum
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -366,13 +314,12 @@ def p05_main():
     V.t_P05_duracion.reset()
 
     # Rung 0: deshabilitar PID por falla de presión
-    if (V.b_primer_scan or V.b_PB_DESHABILITA_PID
+    if (V.b_PB_DESHABILITA_PID
             or V.r_P_Gas  >= V.r_falla_presion_gas
             or V.r_P_Oil  >= V.r_falla_presion_crudo):
         V.b_DESHABILITA_PID = True
-        if V.b_DESHABILITA_PID:
-            V.b_PB_DESHABILITA_PID = False
-    if V.b_DESHABILITA_PID and (V.b_PB_HABILITA_PID or V.b_PB_DESHABILITA_PID_FS):
+        V.b_PB_DESHABILITA_PID = False
+    if V.b_DESHABILITA_PID and V.b_PB_HABILITA_PID:
         V.b_DESHABILITA_PID = False
         V.b_PB_HABILITA_PID = False
 

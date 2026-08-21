@@ -56,7 +56,7 @@ class GlobalVars:
         self.b_list_combo_box_status_reinicia = False
 
         # Control PID
-        self.b_DESHABILITA_PID = True
+        self.b_DESHABILITA_PID = False
         self.b_MAN_LC = False
         self.b_MAN_PC = False
         self.b_Control_PID_Gas = False

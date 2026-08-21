@@ -37,6 +37,12 @@ const App = {
         <span>Prueba en Proceso</span>
       </div>
       <div class="flex items-center gap-4">
+        <button @click="toggleTheme" 
+                class="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors border border-border"
+                :title="isLightMode ? 'Cambiar a Modo Oscuro' : 'Cambiar a Modo Claro'">
+          <span v-if="isLightMode" class="text-accent-yellow text-lg">☀️</span>
+          <span v-else class="text-blue-300 text-lg">🌙</span>
+        </button>
         <div class="hdr-clock">{{ clock }}</div>
         <div class="w-2.5 h-2.5 rounded-full transition-all duration-300"
              :style="!connected
@@ -63,7 +69,7 @@ const App = {
       ]">
         <!-- Toggle button -->
         <button @click="sidebarOpen = !sidebarOpen"
-                class="sidebar-toggle flex items-center justify-center h-8 w-full border-b border-gray-700 hover:bg-white/10 transition-colors">
+                class="sidebar-toggle flex items-center justify-center h-8 w-full border-b border-border hover:bg-white/10 transition-colors">
           <span class="text-accent-yellow text-lg font-bold select-none">
             {{ sidebarOpen ? '◀' : '☰' }}
           </span>
@@ -76,12 +82,12 @@ const App = {
             <button @click="handleNavClick(item)"
                     :class="[
                       'nav-side-btn flex items-center gap-2 w-full rounded-lg transition-all duration-200 text-left',
-                      (page === item.key || (item.children && item.children.some(c => c.key === page))) ? 'bg-accent-blue text-white' : 'text-gray-300 hover:bg-white/10',
+                      (page === item.key || (item.children && item.children.some(c => c.key === page))) ? 'bg-accent-blue text-white' : 'text-text-secondary hover:bg-white/10',
                       sidebarOpen ? 'px-3 py-1.5' : 'px-0 py-1.5 justify-center'
                     ]">
-              <span class="text-base flex-shrink-0">{{ item.icon }}</span>
+              <span class="text-base flex-shrink-0 flex items-center justify-center" v-html="item.icon"></span>
               <span v-if="sidebarOpen" class="text-xs font-semibold truncate leading-tight flex-1">{{ item.label }}</span>
-              <span v-if="sidebarOpen && item.children" class="text-[10px] text-gray-400">
+              <span v-if="sidebarOpen && item.children" class="text-[10px] text-text-secondary">
                 {{ expandedMenus[item.key] ? '▼' : '▶' }}
               </span>
             </button>
@@ -92,7 +98,7 @@ const App = {
                       @click="page = child.key; if(window?.innerWidth < 768) sidebarOpen = false"
                       :class="[
                         'flex items-center gap-2 w-full rounded-lg py-1 px-3 transition-all duration-200 text-left text-xs',
-                        page === child.key ? 'bg-accent-steel text-white font-bold' : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                        page === child.key ? 'bg-accent-steel text-white font-bold' : 'text-text-secondary hover:bg-text-primary/5 hover:text-text-primary'
                       ]">
                 <span class="truncate leading-tight">{{ child.label }}</span>
               </button>
@@ -101,7 +107,7 @@ const App = {
         </nav>
 
         <!-- Bottom section -->
-        <div class="p-1.5 border-t border-gray-700 flex flex-col gap-1">
+        <div class="p-1.5 border-t border-border flex flex-col gap-1">
           <button @click="toggleLazos"
                   :class="[
                     'flex items-center gap-2 rounded-lg px-2 py-1 text-xs font-bold transition-all w-full',
@@ -146,7 +152,11 @@ const App = {
         </div>
 
         <div v-if="page==='pvt'" class="flex-1 overflow-y-auto overflow-x-hidden">
-          <pvt-page @back="page='propiedades'" />
+          <pvt-page :proc="proc" @back="page='propiedades'" />
+        </div>
+
+        <div v-if="page==='historico_alarmas'" class="flex-1 overflow-y-auto overflow-x-hidden">
+          <historico-alarmas-page />
         </div>
 
         <div v-if="page==='reportes'" class="flex-1 overflow-y-auto overflow-x-hidden flex items-center justify-center">
@@ -216,9 +226,30 @@ const App = {
     const alarmas = ref([]);
     const clock = ref('--:--:--');
     const sidebarOpen = ref(true);
+    
+    const isLightMode = ref(false);
+
+    function toggleTheme() {
+      isLightMode.value = !isLightMode.value;
+      if (isLightMode.value) {
+        document.documentElement.classList.add('light-theme');
+        localStorage.setItem('theme', 'light');
+      } else {
+        document.documentElement.classList.remove('light-theme');
+        localStorage.setItem('theme', 'dark');
+      }
+    }
+
+    // Inicializar el tema
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'light') {
+      isLightMode.value = true;
+      document.documentElement.classList.add('light-theme');
+    }
 
     const expandedMenus = reactive({
-      conf_instrum: false
+      conf_instrum: false,
+      prueba: false
     });
 
     const instrumentSelection = reactive({
@@ -246,25 +277,34 @@ const App = {
     }
 
     const navItems = [
-      { key: 'proceso', icon: '■', label: 'Inicio / Proceso' },
-      { key: 'inicio_prueba', icon: '►', label: 'Inicio Prueba' },
-      { key: 'reportes', icon: '☰', label: 'Reportes' },
-      { key: 'data_cruda', icon: '▦', label: 'Data Cruda' },
+      { key: 'proceso', icon: `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="M240-440h360v-80H240v80Zm0-120h360v-80H240v80Zm-80 400q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-480H160v480Zm0 0v-480 480Z"/></svg>`, label: 'Inicio / Proceso' },
       {
-        key: 'conf_instrum',
-        icon: '⚙',
-        label: 'Conf. Instrum.',
+        key: 'prueba',
+        icon: '🧪',
+        label: 'Prueba',
         children: [
-          { key: 'rangos', label: 'Rangos y Alarmas' },
-          { key: 'config_instrument_2', label: 'Config Instrument 2' },
-          { key: 'config_instrument_3', label: 'Selección de Fórmulas' }
+          { key: 'inicio_prueba', label: 'Inicio Prueba' },
+          { key: 'data_cruda', label: 'Data Cruda' },
+          { key: 'prueba_progreso', label: 'Prueba Progreso' },
+          { key: 'reportes', label: 'Reportes' },
+          { key: 'historico_alarmas', label: 'Hist. Alarmas' },
         ]
       },
-      { key: 'propiedades', icon: '⚙', label: 'Propiedades' },
-      { key: 'calibracion', icon: '◊', label: 'Datos Calibración' },
-      { key: 'prueba_progreso', icon: '◕', label: 'Prueba Progreso' },
-      { key: 'daq_config', icon: '≡', label: 'Config DAQ' },
-      { key: 'hart_config', icon: '⚠', label: 'Config HART' },
+      {
+        key: 'conf_instrum',
+        icon: `
+<svg xmlns="http://www.w3.org/2000/svg" height="48px" viewBox="0 -960 960 960" width="25px" fill="currentColor"><path d="m388-80-20-126q-19-7-40-19t-37-25l-118 54-93-164 108-79q-2-9-2.5-20.5T185-480q0-9 .5-20.5T188-521L80-600l93-164 118 54q16-13 37-25t40-18l20-127h184l20 126q19 7 40.5 18.5T669-710l118-54 93 164-108 77q2 10 2.5 21.5t.5 21.5q0 10-.5 21t-2.5 21l108 78-93 164-118-54q-16 13-36.5 25.5T592-206L572-80H388Zm48-60h88l14-112q33-8 62.5-25t53.5-41l106 46 40-72-94-69q4-17 6.5-33.5T715-480q0-17-2-33.5t-7-33.5l94-69-40-72-106 46q-23-26-52-43.5T538-708l-14-112h-88l-14 112q-34 7-63.5 24T306-642l-106-46-40 72 94 69q-4 17-6.5 33.5T245-480q0 17 2.5 33.5T254-413l-94 69 40 72 106-46q24 24 53.5 41t62.5 25l14 112Zm44-210q54 0 92-38t38-92q0-54-38-92t-92-38q-54 0-92 38t-38 92q0 54 38 92t92 38Zm0-130Z"/></svg>`,
+        label: 'Configuracion',
+        children: [
+          { key: 'propiedades', label: 'Propiedades' },
+          { key: 'rangos', label: 'Rangos y Alarmas' },
+          { key: 'config_instrument_2', label: 'Config. Instrumentos' },
+          { key: 'config_instrument_3', label: 'Selección de Fórmulas' },
+          { key: 'calibracion', label: 'Datos Calibración' },
+          { key: 'daq_config', label: 'Config AI/AO/DI/DO' },
+          { key: 'hart_config', label: 'Config HART' },
+        ]
+      },
     ];
 
     const proc = reactive({
@@ -336,6 +376,7 @@ const App = {
       clockTimer = setInterval(tickClock, 1000);
       tickClock();
       socket = io({ transports: ['websocket'], reconnectionDelay: 1000 });
+      window._appSocket = socket;  // Exponer globalmente para subcomponentes
       socket.on('connect', () => { connected.value = true; });
       socket.on('disconnect', () => { connected.value = false; });
       socket.on('process_data', d => {
@@ -359,7 +400,7 @@ const App = {
     return {
       page, connected, db_ok, lazos, toasts, alarmas, clock, proc, pid_p, pid_n, modalPid,
       sidebarOpen, navItems, openPid, savePid, toggleLazos, loadAlarmas, showToast,
-      expandedMenus, handleNavClick, instrumentSelection
+      expandedMenus, handleNavClick, instrumentSelection, isLightMode, toggleTheme
     };
   }
 };
@@ -439,10 +480,10 @@ const ProcesoPage = {
       </div>
 
       <!-- TAG A %GAS-01 (Movido a posición superior) -->
-      <div class="pid-tag laminar-a-tag warn-tag">
+      <div class="pid-tag laminar-a-tag" :class="alarmCls('r_GVoidF')">
         <div class="pt-name">A %GAS-01</div>
         <div class="pt-val">
-          <span v-if="proc.r_GVoidF > 20" class="pt-alarm-icon">🔥</span>
+          <span v-if="alarmCls('r_GVoidF')" class="pt-alarm-icon">🔥</span>
           {{ fmt(proc.r_GVoidF,1) }}<span class="pt-unit"> %</span>
         </div>
       </div>
@@ -515,10 +556,10 @@ const ProcesoPage = {
     </div>
 
     <!-- TABLAS INFERIORES -->
-    <div class="flex-shrink-0 bg-bg-card border border-gray-700/60 rounded-b-xl overflow-hidden mt-0.5">
+    <div class="flex-shrink-0 bg-bg-card border border-transparent rounded-b-xl overflow-hidden mt-0.5">
       <table class="w-full text-xs">
         <thead>
-          <tr class="bg-bg-tag/80 text-white font-semibold border-b border-gray-700/60">
+          <tr class="bg-bg-surface text-text-primary font-semibold border-b border-transparent">
             <th class="py-1 px-2 uppercase text-[10px]">TIPO</th>
             <th class="py-1 px-2 uppercase text-[10px]">Q LIQ (BBLD)</th>
             <th class="py-1 px-2 uppercase text-[10px]">Q CRUDO (BBLD)</th>
@@ -528,10 +569,10 @@ const ProcesoPage = {
             <th class="py-1 px-2 uppercase text-[10px]">Q GAS (MCFD)</th>
           </tr>
         </thead>
-        <tbody class="text-gray-200">
+        <tbody class="text-text-primary">
           <!-- Fila 1: Caudales Estimados (durante prueba activa) -->
-          <tr class="border-b border-gray-700/40 bg-white/5">
-            <td class="font-bold text-accent-yellow text-center py-1.5 text-[10px]">ESTIMADOS</td>
+          <tr class="border-b border-transparent bg-text-primary/5">
+            <td class="text-center py-1.5"><span class="font-bold bg-accent-yellow/20 text-accent-yellow px-2 py-0.5 rounded text-[10px]">ESTIMADOS</span></td>
             <td class="text-center font-mono text-[11px] py-1.5">{{ proc.Est_Q_Liq?.toFixed(3) || '0.000' }}</td>
             <td class="text-center font-mono text-[11px] py-1.5">{{ proc.Est_Q_Crudo?.toFixed(3) || '0.000' }}</td>
             <td class="text-center font-mono text-[11px] py-1.5">{{ proc.Est_Q_Neto?.toFixed(3) || '0.000' }}</td>
@@ -542,7 +583,7 @@ const ProcesoPage = {
 
           <!-- Fila 2: Caudales Medidos (en tiempo real) -->
           <tr>
-            <td class="font-bold text-accent-blue text-center py-1.5 text-[10px]">MEDIDOS</td>
+            <td class="text-center py-1.5"><span class="font-bold bg-accent-blue/20 text-accent-blue px-2 py-0.5 rounded text-[10px]">MEDIDOS</span></td>
             <td class="text-center font-mono text-[11px] py-1.5">{{ proc.Q_Liq?.toFixed(3) || '0.000' }}</td>
             <td class="text-center font-mono text-[11px] py-1.5">{{ proc.Q_Crudo?.toFixed(3) || '0.000' }}</td>
             <td class="text-center font-mono text-[11px] py-1.5">{{ proc.Q_Neto?.toFixed(3) || '0.000' }}</td>
@@ -622,12 +663,12 @@ const DataCrudaPage = {
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-xl font-bold text-white tracking-wide">📊 Data Cruda – Tendencias</h1>
-        <p class="text-xs text-gray-400 mt-0.5">Histórico en tiempo real de variables de proceso</p>
+        <h1 class="text-xl font-bold text-text-primary tracking-wide">📊 Data Cruda – Tendencias</h1>
+        <p class="text-xs text-text-secondary mt-0.5">Histórico en tiempo real de variables de proceso</p>
       </div>
       <div class="flex gap-2 items-center">
-        <span class="text-xs text-gray-400">Ventana:</span>
-        <select v-model="windowSize" class="bg-bg-card border border-gray-600 text-white text-xs rounded px-2 py-1 outline-none focus:border-accent-yellow">
+        <span class="text-xs text-text-secondary">Ventana:</span>
+        <select v-model="windowSize" class="bg-bg-card border border-border text-text-primary text-xs rounded px-2 py-1 outline-none focus:border-accent-yellow">
           <option :value="60">1 min</option>
           <option :value="120">2 min</option>
           <option :value="300">5 min</option>
@@ -637,7 +678,7 @@ const DataCrudaPage = {
           🗑 Limpiar
         </button>
         <button @click="paused = !paused"
-                :class="['px-3 py-1 text-xs font-semibold text-white rounded transition-all',
+                :class="['px-3 py-1 text-xs font-semibold text-text-primary rounded transition-all',
                           paused ? 'bg-accent-green hover:brightness-110' : 'bg-yellow-700 hover:brightness-110']">
           {{ paused ? '▶ Reanudar' : '⏸ Pausar' }}
         </button>
@@ -649,7 +690,7 @@ const DataCrudaPage = {
       <button v-for="v in variables" :key="v.key"
               @click="v.active = !v.active; updateChart()"
               :class="['flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all',
-                        v.active ? 'text-white border-transparent' : 'border-gray-600 text-gray-400 bg-transparent hover:bg-white/5']"
+                        v.active ? 'text-text-primary border-transparent' : 'border-border text-text-secondary bg-transparent hover:bg-text-primary/5']"
               :style="v.active ? {background: v.color, boxShadow: '0 0 8px '+v.color+'66'} : {}">
         <span class="w-2 h-2 rounded-full flex-shrink-0" :style="{background: v.color}"></span>
         {{ v.label }}
@@ -657,25 +698,25 @@ const DataCrudaPage = {
     </div>
 
     <!-- GRÁFICA PRINCIPAL -->
-    <div class="bg-bg-card rounded-xl border border-gray-700 p-4" style="height: 360px;">
+    <div class="bg-bg-card rounded-xl border border-border p-4" style="height: 360px;">
       <canvas ref="chartCanvas" style="width:100%;height:100%;"></canvas>
     </div>
 
     <!-- VALORES ACTUALES en cards -->
     <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-3">
       <div v-for="v in variables" :key="v.key"
-           class="data-card rounded-xl border p-3 flex flex-col gap-1 transition-all"
-           :style="{borderColor: v.color+'55', background: 'rgba(28,36,48,0.9)'}">
+           class="data-card bg-bg-surface rounded-xl border p-3 flex flex-col gap-1 transition-all"
+           :style="{borderColor: v.color+'55'}">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold tracking-wider" :style="{color: v.color}">{{ v.label }}</span>
-          <span class="w-2 h-2 rounded-full" :style="{background: v.active ? v.color : '#6b7280'}"></span>
+          <span class="w-2 h-2 rounded-full" :style="{background: v.active ? v.color : 'var(--text-secondary)'}"></span>
         </div>
-        <div class="font-mono text-2xl font-bold text-white leading-none">
+        <div class="font-mono text-2xl font-bold text-text-primary leading-none">
           {{ fmtVal(proc[v.key], v.decimals) }}
         </div>
-        <div class="text-xs text-gray-500">{{ v.unit }}</div>
+        <div class="text-xs text-text-secondary">{{ v.unit }}</div>
         <!-- Mini sparkline indicator -->
-        <div class="mt-1 h-1 rounded-full bg-gray-700 overflow-hidden">
+        <div class="mt-1 h-1 rounded-full bg-border overflow-hidden">
           <div class="h-full rounded-full transition-all duration-500"
                :style="{
                  width: getPercent(v.key, v.min, v.max)+'%',
@@ -686,28 +727,28 @@ const DataCrudaPage = {
     </div>
 
     <!-- TABLA SNAPSHOT -->
-    <div class="bg-bg-card rounded-xl border border-gray-700 overflow-hidden">
-      <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
-        <span class="text-sm font-bold text-white">📋 Últimos Valores Registrados</span>
-        <span class="text-xs text-gray-500 font-mono">{{ proc.timestamp || '--' }}</span>
+    <div class="bg-bg-card rounded-xl border border-border overflow-hidden">
+      <div class="px-4 py-3 border-b border-border flex items-center justify-between">
+        <span class="text-sm font-bold text-text-primary">📋 Últimos Valores Registrados</span>
+        <span class="text-xs text-text-secondary font-mono">{{ proc.timestamp || '--' }}</span>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-xs">
           <thead>
-            <tr class="border-b border-gray-700">
-              <th class="px-4 py-2 text-left text-gray-400 font-semibold">Variable</th>
-              <th class="px-4 py-2 text-right text-gray-400 font-semibold">Valor</th>
-              <th class="px-4 py-2 text-right text-gray-400 font-semibold">Unidad</th>
-              <th class="px-4 py-2 text-right text-gray-400 font-semibold">Mín (sesión)</th>
-              <th class="px-4 py-2 text-right text-gray-400 font-semibold">Máx (sesión)</th>
+            <tr class="border-b border-border">
+              <th class="px-4 py-2 text-left text-text-secondary font-semibold">Variable</th>
+              <th class="px-4 py-2 text-right text-text-secondary font-semibold">Valor</th>
+              <th class="px-4 py-2 text-right text-text-secondary font-semibold">Unidad</th>
+              <th class="px-4 py-2 text-right text-text-secondary font-semibold">Mín (sesión)</th>
+              <th class="px-4 py-2 text-right text-text-secondary font-semibold">Máx (sesión)</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="v in variables" :key="v.key"
-                class="border-b border-gray-800 hover:bg-white/5 transition-colors">
+                class="border-b border-border hover:bg-text-primary/5 transition-colors">
               <td class="px-4 py-2 font-bold" :style="{color: v.color}">{{ v.label }}</td>
-              <td class="px-4 py-2 text-right font-mono text-white font-semibold">{{ fmtVal(proc[v.key], v.decimals) }}</td>
-              <td class="px-4 py-2 text-right text-gray-400">{{ v.unit }}</td>
+              <td class="px-4 py-2 text-right font-mono text-text-primary font-semibold">{{ fmtVal(proc[v.key], v.decimals) }}</td>
+              <td class="px-4 py-2 text-right text-text-secondary">{{ v.unit }}</td>
               <td class="px-4 py-2 text-right font-mono text-blue-400">{{ histStats[v.key] ? fmtVal(histStats[v.key].min, v.decimals) : '—' }}</td>
               <td class="px-4 py-2 text-right font-mono text-orange-400">{{ histStats[v.key] ? fmtVal(histStats[v.key].max, v.decimals) : '—' }}</td>
             </tr>
@@ -1063,7 +1104,9 @@ const RangosPage = {
       'PDI-01':  'PDI_01',
       'PDI-02':  'r_PDT_02',
       'PDI-03':  'PDI_03',
+      'PDI-04':  'r_Transmisor_Gas',
       'PI-01':   'r_P_Gas',
+      'PI-02':   'r_P_Oil',
       'TI-01':   'r_T_Oil_C',
       'TI-02':   'r_T_Gas',
       'VI-01':   'r_v_oil_medida',
@@ -1163,259 +1206,264 @@ const InicioPruebaPage = {
   props: ['proc'],
   emits: ['toast'],
   template: `
-  <div class="p-3 flex flex-col gap-3 h-full overflow-y-auto w-full">
-
-    <!-- ══ PANEL SUPERIOR: Datos Inicio de Prueba + botones ══ -->
-    <div style="display:grid; grid-template-columns:1fr auto; gap:10px; align-items:start;">
-
-      <!-- Contenedor Datos Inicio de Prueba -->
-      <div class="ip-box">
-        <div class="ip-box-header">Datos Inicio de Prueba</div>
-        <div class="ip-box-body" style="padding:8px 10px;">
-
-          <!-- Fila 1: Duracion Prueba (derecha) + Codigo Reporte (izquierda) -->
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-            <div style="display:flex; align-items:center; gap:4px;">
-              <span class="ip-lbl">(32c) Codigo de Reporte</span>
-              <span class="ip-val-box">{{ proc.as_Codigo_pozo_16 || '—' }}</span>
-            </div>
-            <div style="display:flex; align-items:center; gap:4px;">
-              <span class="ip-lbl" style="font-weight:700; color:var(--accent-blue);">Duracion Prueba:</span>
-              <span class="ip-val-inline">{{ proc.i_duracion_prueba_horas ?? 0 }} Horas</span>
-            </div>
-          </div>
-
-          <!-- Fila 2: Fecha Inicio | Numero Reporte -->
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:4px;">
-            <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
-              <span class="ip-lbl">Fecha de Inicio (dd/mm/aaaa)</span>
-              <span class="ip-val-box">{{ proc.ad_TIEMPO_inicio_prueba?.[2] ?? 0 }}</span>
-              <span class="ip-sep">/</span>
-              <span class="ip-val-box">{{ proc.ad_TIEMPO_inicio_prueba?.[1] ?? 0 }}</span>
-              <span class="ip-sep">/</span>
-              <span class="ip-val-box">{{ proc.ad_TIEMPO_inicio_prueba?.[0] ?? 0 }}</span>
-            </div>
-            <div style="display:flex; align-items:center; gap:4px; border-left:1px solid rgba(255,255,255,0.12); padding-left:8px;">
-              <span class="ip-lbl">(4c) Numero de Reporte</span>
-              <span class="ip-val-box">{{ proc.as_Codigo_pozo_19 || '—' }}</span>
-            </div>
-          </div>
-
-          <!-- Fila 3: Hora Inicio | Tiempo Transc -->
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
-            <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
-              <span class="ip-lbl">Hora de Inicio (hh:mm:ss)</span>
-              <span class="ip-val-box">{{ proc.ad_TIEMPO_inicio_prueba?.[3] ?? 0 }}</span>
-              <span class="ip-sep">:</span>
-              <span class="ip-val-box">{{ proc.ad_TIEMPO_inicio_prueba?.[4] ?? 0 }}</span>
-              <span class="ip-sep">:</span>
-              <span class="ip-val-box">{{ proc.ad_TIEMPO_inicio_prueba?.[5] ?? 0 }}</span>
-            </div>
-            <div style="display:flex; align-items:center; gap:4px; border-left:1px solid rgba(255,255,255,0.12); padding-left:8px; flex-wrap:wrap;">
-              <span class="ip-lbl">Tiempo Transc (hh:mm:ss)</span>
-              <span class="ip-val-box">{{ proc.ar_TIEMPO_prueba_TOTAL?.[3] ?? 0 }}</span>
-              <span class="ip-sep">:</span>
-              <span class="ip-val-box">{{ proc.ar_TIEMPO_prueba_TOTAL?.[5] ?? 0 }}</span>
-              <span class="ip-sep">:</span>
-              <span class="ip-val-box">{{ proc.ar_TIEMPO_prueba_TOTAL?.[6] ?? 0 }}</span>
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-      <!-- Botones acción -->
-      <div style="display:flex; flex-direction:column; gap:8px; min-width:160px;">
-        <div v-if="proc.b_Prueba_en_Progreso"
-             style="display:flex; align-items:center; gap:6px; padding:4px 10px;
-                    background:rgba(220,38,38,0.2); border:1px solid #ef4444; border-radius:6px;
-                    animation:pulse 1.5s infinite;">
-          <span style="color:#f87171; font-size:10px; font-weight:700;">● PRUEBA ACTIVA</span>
-        </div>
-        <button @click="showCargar = true"
-                class="ip-btn-orange">
-          Cargar Datos Prueba
-        </button>
-        <button v-if="!proc.b_Prueba_en_Progreso" @click="iniciarPrueba"
-                class="ip-btn-iniciar">
-          INICIAR PRUEBA
-        </button>
-        <button v-if="proc.b_Prueba_en_Progreso" @click="pararPrueba"
-                class="ip-btn-parar">
-          ⏹ DETENER
-        </button>
-        <button v-if="proc.b_Prueba_en_Progreso" @click="abortarPrueba"
-                class="ip-btn-abortar">
-          ✕ ABORTAR
-        </button>
+  <div class="p-6 flex flex-col gap-6 w-full max-w-5xl mx-auto animation-fade-in overflow-y-auto h-full">
+    <div class="flex items-center justify-between">
+      <h1 class="text-xl font-bold text-text-primary tracking-wide flex items-center gap-2">
+        <span class="text-accent-yellow">🚀</span> Inicio de Prueba
+      </h1>
+      <div v-if="proc.b_Prueba_en_Progreso" class="flex items-center gap-2 px-4 py-1.5 bg-red-500/20 border border-red-500/50 rounded-full animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.3)]">
+        <div class="w-2 h-2 rounded-full bg-red-500"></div>
+        <span class="text-red-400 text-xs font-black uppercase tracking-widest">Prueba Activa</span>
       </div>
     </div>
 
-    <!-- ══ PANEL INFERIOR: Datos Generales de la Prueba ══ -->
-    <div class="ip-box">
-      <div class="ip-box-header">Datos Generales de la Prueba</div>
-      <div class="ip-box-body" style="padding:0;">
-        <table style="width:100%; border-collapse:collapse; font-size:11px;">
+    <!-- PANEL SUPERIOR -->
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      
+      <!-- Datos Inicio de Prueba (Ocupa 3 columnas) -->
+      <div class="lg:col-span-3 bg-bg-card border border-border rounded-xl overflow-hidden shadow-lg flex flex-col">
+        <div class="bg-accent-blue/20 px-5 py-3 border-b border-border flex items-center justify-between">
+          <h2 class="text-xs font-bold text-accent-blue uppercase tracking-widest">Datos Inicio de Prueba</h2>
+          <div class="text-xs text-text-secondary">
+            <span class="font-bold text-text-primary">Duración:</span> {{ proc.i_duracion_prueba_horas ?? 0 }} Horas
+          </div>
+        </div>
+        
+        <div class="p-5 grid grid-cols-1 sm:grid-cols-3 gap-6 flex-1 items-center">
+          
+          <div class="flex flex-col gap-1">
+            <span class="text-[10px] font-bold text-text-secondary uppercase tracking-wider">(32c) Código de Reporte</span>
+            <span class="text-lg font-mono text-text-primary font-medium bg-bg-primary px-3 py-1.5 rounded border border-border w-fit">
+              {{ proc.as_Codigo_pozo_16 || '—' }}
+            </span>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <span class="text-[10px] font-bold text-text-secondary uppercase tracking-wider">Fecha de Inicio</span>
+            <span class="text-base font-mono text-accent-yellow">
+              {{ String(proc.ad_TIEMPO_inicio_prueba?.[2] ?? 0).padStart(2, '0') }} /
+              {{ String(proc.ad_TIEMPO_inicio_prueba?.[1] ?? 0).padStart(2, '0') }} /
+              {{ proc.ad_TIEMPO_inicio_prueba?.[0] ?? '0000' }}
+            </span>
+            <div class="text-[10px] font-bold text-text-secondary mt-1">
+              Hora: <span class="text-text-primary font-mono">{{ String(proc.ad_TIEMPO_inicio_prueba?.[3] ?? 0).padStart(2, '0') }}:{{ String(proc.ad_TIEMPO_inicio_prueba?.[4] ?? 0).padStart(2, '0') }}:{{ String(proc.ad_TIEMPO_inicio_prueba?.[5] ?? 0).padStart(2, '0') }}</span>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <span class="text-[10px] font-bold text-text-secondary uppercase tracking-wider">(4c) Num. Reporte</span>
+            <span class="text-base text-text-primary mb-1">{{ proc.as_Codigo_pozo_19 || '—' }}</span>
+            
+            <span class="text-[10px] font-bold text-text-secondary uppercase tracking-wider mt-2">Tiempo Transc.</span>
+            <span class="text-base font-mono text-accent-green">
+              {{ String(proc.ar_TIEMPO_prueba_TOTAL?.[3] ?? 0).padStart(2, '0') }}:{{ String(proc.ar_TIEMPO_prueba_TOTAL?.[5] ?? 0).padStart(2, '0') }}:{{ String(proc.ar_TIEMPO_prueba_TOTAL?.[6] ?? 0).padStart(2, '0') }}
+            </span>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Controles (Ocupa 1 columna) -->
+      <div class="bg-bg-card border border-border rounded-xl shadow-lg p-5 flex flex-col gap-4 justify-center">
+        <button @click="showCargar = true" class="w-full px-4 py-3 bg-accent-orange hover:bg-orange-500 text-text-primary text-xs font-bold uppercase rounded-lg transition-all shadow-lg flex items-center justify-center gap-2">
+          <span>📝</span> Cargar Datos
+        </button>
+        
+        <button v-if="!proc.b_Prueba_en_Progreso" @click="iniciarPrueba" class="w-full px-4 py-3 bg-accent-yellow text-black hover:bg-yellow-400 text-xs font-black uppercase rounded-lg transition-all shadow-lg flex items-center justify-center gap-2">
+          <span>▶</span> Iniciar Prueba
+        </button>
+        
+        <button v-if="proc.b_Prueba_en_Progreso" @click="pararPrueba" class="w-full px-4 py-3 bg-accent-red hover:bg-red-500 text-text-primary text-xs font-bold uppercase rounded-lg transition-all shadow-lg flex items-center justify-center gap-2">
+          <span>⏹</span> Detener
+        </button>
+        
+        <button v-if="proc.b_Prueba_en_Progreso" @click="abortarPrueba" class="w-full px-4 py-3 bg-transparent border border-red-500 text-red-500 hover:bg-red-500/10 text-xs font-bold uppercase rounded-lg transition-all flex items-center justify-center gap-2">
+          <span>✕</span> Abortar
+        </button>
+      </div>
+
+    </div>
+
+    <!-- PANEL INFERIOR: Datos Generales -->
+    <div class="bg-bg-card border border-border rounded-xl shadow-lg overflow-hidden flex-1">
+      <div class="bg-bg-surface px-5 py-3 border-b border-border flex items-center gap-3">
+        <span class="text-accent-steel text-lg">📋</span>
+        <h2 class="text-xs font-bold text-text-primary uppercase tracking-widest">Datos Generales de la Prueba</h2>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
           <thead>
-            <tr style="background:rgba(55,130,200,0.18);">
-              <th class="ip-th">Parámetro</th>
-              <th class="ip-th">Valores</th>
+            <tr class="bg-bg-primary/50 text-[10px] text-text-secondary uppercase tracking-wider border-b border-border">
+              <th class="py-3 px-5 font-semibold">Parámetro</th>
+              <th class="py-3 px-5 font-semibold">Valores Registrados</th>
             </tr>
           </thead>
-          <tbody>
-            <tr class="ip-tr"><td class="ip-td-lbl">(16c) Lugar de la Prueba</td>
-              <td class="ip-td-val">{{ proc.as_Codigo_pozo_17 || '—' }}</td></tr>
-            <tr class="ip-tr"><td class="ip-td-lbl">(6c) Codigo del Pozo</td>
-              <td class="ip-td-val">{{ proc.as_Codigo_pozo_03 || '—' }}</td></tr>
-            <tr class="ip-tr"><td class="ip-td-lbl">(6c) Metodo de Produccion</td>
-              <td class="ip-td-val">{{ proc.as_Codigo_pozo_06 || '—' }}</td></tr>
-            <tr class="ip-tr"><td class="ip-td-lbl">(4c) RPM de la Bomba / Diametro del Disco</td>
-              <td class="ip-td-val">{{ proc.as_Codigo_pozo_08 || '—' }}</td></tr>
-            <tr class="ip-tr"><td class="ip-td-lbl">(4c) Inyeccion Diluente</td>
-              <td class="ip-td-val">{{ proc.as_Codigo_pozo_18 || '—' }}</td></tr>
-            <tr class="ip-tr ip-tr-indent"><td class="ip-td-lbl">Temperatura de Yacimiento</td>
-              <td class="ip-td-val">{{ (proc.r_T_Yac_C ?? 0).toFixed(3) }} °C</td></tr>
-            <tr class="ip-tr ip-tr-indent"><td class="ip-td-lbl">API de Formacion</td>
-              <td class="ip-td-val">{{ (proc.r_API_formacion_BM ?? 0).toFixed(3) }} @60°F y 1Atm</td></tr>
-            <tr class="ip-tr ip-tr-indent"><td class="ip-td-lbl">API de la Mezcla</td>
-              <td class="ip-td-val">{{ (proc.r_API_2 ?? 0).toFixed(3) }} @60°F y 1Atm</td></tr>
-            <tr class="ip-tr ip-tr-indent"><td class="ip-td-lbl">API de Diluente</td>
-              <td class="ip-td-val">{{ (proc.r_API_1 ?? 0).toFixed(3) }} @60°F y 1Atm</td></tr>
-            <tr class="ip-tr ip-tr-indent"><td class="ip-td-lbl">Caudal de Diluente</td>
-              <td class="ip-td-val">{{ (proc.r_caudal_dil_BM ?? 0).toFixed(3) }} BBD</td></tr>
+          <tbody class="text-xs text-text-primary divide-y divide-border/50">
+            <tr class="hover:bg-bg-primary/30 transition-colors">
+              <td class="py-2.5 px-5 font-medium text-text-secondary">(16c) Lugar de la Prueba</td>
+              <td class="py-2.5 px-5 text-text-primary">{{ proc.as_Codigo_pozo_17 || '—' }}</td>
+            </tr>
+            <tr class="hover:bg-bg-primary/30 transition-colors">
+              <td class="py-2.5 px-5 font-medium text-text-secondary">(6c) Código del Pozo</td>
+              <td class="py-2.5 px-5 text-accent-yellow font-bold">{{ proc.as_Codigo_pozo_03 || '—' }}</td>
+            </tr>
+            <tr class="hover:bg-bg-primary/30 transition-colors">
+              <td class="py-2.5 px-5 font-medium text-text-secondary">(6c) Método de Producción</td>
+              <td class="py-2.5 px-5 text-text-primary">{{ proc.as_Codigo_pozo_06 || '—' }}</td>
+            </tr>
+            <tr class="hover:bg-bg-primary/30 transition-colors">
+              <td class="py-2.5 px-5 font-medium text-text-secondary">(4c) RPM Bomba / Diámetro Disco</td>
+              <td class="py-2.5 px-5 text-text-primary font-mono">{{ proc.as_Codigo_pozo_08 || '—' }}</td>
+            </tr>
+            <tr class="hover:bg-bg-primary/30 transition-colors">
+              <td class="py-2.5 px-5 font-medium text-text-secondary">(4c) Inyección Diluente</td>
+              <td class="py-2.5 px-5 text-text-primary font-mono">{{ proc.as_Codigo_pozo_18 || '—' }}</td>
+            </tr>
+            
+            <tr class="hover:bg-bg-primary/30 transition-colors bg-bg-surface/30">
+              <td class="py-2.5 px-5 pl-10 font-medium text-text-secondary relative">
+                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-text-secondary">↳</span> Temperatura de Yacimiento
+              </td>
+              <td class="py-2.5 px-5 text-accent-steel font-mono">{{ (proc.r_T_Yac_C ?? 0).toFixed(3) }} <span class="text-text-secondary text-[10px]">°C</span></td>
+            </tr>
+            <tr class="hover:bg-bg-primary/30 transition-colors bg-bg-surface/30">
+              <td class="py-2.5 px-5 pl-10 font-medium text-text-secondary relative">
+                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-text-secondary">↳</span> API de Formación
+              </td>
+              <td class="py-2.5 px-5 text-accent-steel font-mono">{{ (proc.r_API_formacion_BM ?? 0).toFixed(3) }} <span class="text-text-secondary text-[10px]">@60°F y 1Atm</span></td>
+            </tr>
+            <tr class="hover:bg-bg-primary/30 transition-colors bg-bg-surface/30">
+              <td class="py-2.5 px-5 pl-10 font-medium text-text-secondary relative">
+                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-text-secondary">↳</span> API de la Mezcla
+              </td>
+              <td class="py-2.5 px-5 text-accent-steel font-mono">{{ (proc.r_API_2 ?? 0).toFixed(3) }} <span class="text-text-secondary text-[10px]">@60°F y 1Atm</span></td>
+            </tr>
+            <tr class="hover:bg-bg-primary/30 transition-colors bg-bg-surface/30">
+              <td class="py-2.5 px-5 pl-10 font-medium text-text-secondary relative">
+                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-text-secondary">↳</span> API de Diluente
+              </td>
+              <td class="py-2.5 px-5 text-accent-steel font-mono">{{ (proc.r_API_1 ?? 0).toFixed(3) }} <span class="text-text-secondary text-[10px]">@60°F y 1Atm</span></td>
+            </tr>
+            <tr class="hover:bg-bg-primary/30 transition-colors bg-bg-surface/30">
+              <td class="py-2.5 px-5 pl-10 font-medium text-text-secondary relative">
+                <span class="absolute left-4 top-1/2 -translate-y-1/2 text-text-secondary">↳</span> Caudal de Diluente
+              </td>
+              <td class="py-2.5 px-5 text-accent-steel font-mono">{{ (proc.r_caudal_dil_BM ?? 0).toFixed(3) }} <span class="text-text-secondary text-[10px]">BBD</span></td>
+            </tr>
           </tbody>
         </table>
       </div>
     </div>
 
-    <!-- ══ MODAL: Cargar Datos Prueba ══ -->
-    <div v-if="showCargar" class="modal-overlay" @click.self="showCargar = false">
-      <div class="modal" style="width:480px; max-height:90vh;">
-        <div class="modal-header">
-          <h3>Datos de Inicio de Prueba</h3>
-          <button class="modal-close" @click="showCargar = false">✕</button>
+    <!-- MODAL CARGAR DATOS -->
+    <div v-if="showCargar" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animation-fade-in" @click.self="showCargar = false">
+      <div class="bg-bg-card border border-border rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        
+        <div class="bg-bg-surface px-6 py-4 border-b border-border flex items-center justify-between">
+          <h3 class="text-sm font-bold text-text-primary tracking-wide flex items-center gap-2">
+            <span class="text-accent-blue">📝</span> Cargar Datos de Inicio de Prueba
+          </h3>
+          <button @click="showCargar = false" class="text-text-secondary hover:text-text-primary transition-colors p-1">
+            ✕
+          </button>
         </div>
-        <div class="modal-body" style="overflow-y:auto; max-height:calc(90vh - 60px); padding:12px 16px;">
-          <table class="form-table" style="width:100%;">
-
-            <!-- Lugar de la Prueba -->
-            <tr>
-              <td class="label-cell">(16c) Lugar de la Prueba</td>
-              <td class="value-cell"><input v-model="form.lugar" type="text" maxlength="16" /></td>
-            </tr>
-
-            <!-- Numero de Pozo -->
-            <tr>
-              <td class="label-cell">(6c) Numero de Pozo</td>
-              <td class="value-cell"><input v-model="form.pozo" type="text" maxlength="6" style="width:80px;" /></td>
-            </tr>
-
-            <!-- Metodo de Produccion - combo -->
-            <tr>
-              <td class="label-cell">(6c) Metodo de Produccion</td>
-              <td class="value-cell">
-                <select v-model.number="form.comboMetodo" @change="onComboMetodoChange"
-                        style="width:100%; background:var(--bg-primary,#0a121e); color:#fff;
-                               border:1px solid rgba(255,255,255,0.25); border-radius:4px; padding:4px 6px; font-size:11px;">
-                  <option v-for="(op, idx) in metodosProduccion" :key="idx" :value="idx">{{ op }}</option>
-                </select>
-                <span style="font-size:10px; color:#94a3b8; margin-left:4px;">→ {{ proc.as_Codigo_pozo_06 || '—' }}</span>
-              </td>
-            </tr>
-
-            <!-- RPM Bomba / Diametro Disco -->
-            <tr>
-              <td class="label-cell">(4c) RPM Bomba / Diametro Disco</td>
-              <td class="value-cell"><input v-model="form.rpm" type="text" maxlength="4" style="width:70px;" /></td>
-            </tr>
-
-            <!-- Inyeccion de Diluente - combo -->
-            <tr>
-              <td class="label-cell">(4c) Inyeccion de Diluente</td>
-              <td class="value-cell">
-                <select v-model.number="form.comboInyeccion" @change="onComboInyeccionChange"
-                        style="width:100%; background:var(--bg-primary,#0a121e); color:#fff;
-                               border:1px solid rgba(255,255,255,0.25); border-radius:4px; padding:4px 6px; font-size:11px;">
-                  <option v-for="(op, idx) in inyeccionOpciones" :key="idx" :value="idx">{{ op }}</option>
-                </select>
-                <span style="font-size:10px; color:#94a3b8; margin-left:4px;">→ {{ proc.as_Codigo_pozo_18 || '—' }}</span>
-              </td>
-            </tr>
-
-            <!-- Temperatura de Yacimiento -->
-            <tr>
-              <td class="label-cell">Temperatura de Yacimiento</td>
-              <td class="value-cell">
-                <input v-model.number="form.tempYac" type="number" step="0.001" style="width:90px;" />
-              </td>
-            </tr>
-
-            <!-- API de Formacion -->
-            <tr>
-              <td class="label-cell">API de Formacion</td>
-              <td class="value-cell">
-                <input v-model.number="form.apiFormacion" type="number" step="0.001" style="width:90px;" />
-                <span class="ip-unit">@60°F y 1Atm</span>
-              </td>
-            </tr>
-
-            <!-- API de Mezcla -->
-            <tr>
-              <td class="label-cell">API de Mezcla</td>
-              <td class="value-cell">
-                <input v-model.number="form.apiMezcla" type="number" step="0.001" style="width:90px;" />
-                <span class="ip-unit">@60°F y 1Atm</span>
-              </td>
-            </tr>
-
-            <!-- API de Diluente -->
-            <tr>
-              <td class="label-cell">API de Diluente</td>
-              <td class="value-cell">
-                <input v-model.number="form.apiDiluente" type="number" step="0.001" style="width:90px;" />
-                <span class="ip-unit">@60°F y 1Atm</span>
-              </td>
-            </tr>
-
-            <!-- Caudal de Diluente -->
-            <tr>
-              <td class="label-cell">Caudal de Diluente</td>
-              <td class="value-cell">
-                <input v-model.number="form.caudalDiluente" type="number" step="0.001" style="width:90px;" />
-                <span class="ip-unit">BBL/D</span>
-              </td>
-            </tr>
-
-            <!-- Duracion de la Prueba -->
-            <tr>
-              <td class="label-cell">Duracion de la Prueba</td>
-              <td class="value-cell">
-                <input v-model.number="form.duracionHoras" type="number" step="1" min="0" style="width:70px;" />
-                <span class="ip-unit">Horas</span>
-              </td>
-            </tr>
-
-         
-
-          </table>
-
-          <!-- Botones guardar/cancelar -->
-          <div style="display:flex; gap:8px; margin-top:14px; justify-content:flex-end;">
-            <button @click="showCargar = false"
-                    style="padding:6px 18px; background:rgba(255,255,255,0.08); color:#cbd5e1;
-                           border:1px solid rgba(255,255,255,0.18); border-radius:6px; cursor:pointer; font-size:12px;">
-              Cancelar
-            </button>
-            <button @click="guardarDatos"
-                    style="padding:6px 22px; background:var(--accent-blue,#1e6fa8); color:#fff;
-                           border:none; border-radius:6px; cursor:pointer; font-weight:700; font-size:12px;">
-              💾 Guardar en PLC
-            </button>
+        
+        <div class="p-6 overflow-y-auto flex-1 custom-scrollbar grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+          
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">(16c) Lugar de la Prueba</label>
+            <input v-model="form.lugar" type="text" maxlength="16" class="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-text-primary text-sm outline-none focus:border-accent-blue transition-colors" />
           </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">(6c) Número de Pozo</label>
+            <input v-model="form.pozo" type="text" maxlength="6" class="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-text-primary text-sm outline-none focus:border-accent-blue transition-colors" />
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">(6c) Método de Producción</label>
+            <div class="flex items-center gap-2">
+              <select v-model.number="form.comboMetodo" @change="onComboMetodoChange" class="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-text-primary text-sm outline-none focus:border-accent-blue transition-colors appearance-none">
+                <option v-for="(op, idx) in metodosProduccion" :key="idx" :value="idx">{{ op }}</option>
+              </select>
+              <span class="text-xs text-text-secondary whitespace-nowrap bg-bg-surface px-2 py-1.5 rounded border border-border">Actual: {{ proc.as_Codigo_pozo_06 || '—' }}</span>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">(4c) RPM / Diámetro Disco</label>
+            <input v-model="form.rpm" type="text" maxlength="4" class="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-text-primary text-sm outline-none focus:border-accent-blue transition-colors" />
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">(4c) Inyección de Diluente</label>
+            <div class="flex items-center gap-2">
+              <select v-model.number="form.comboInyeccion" @change="onComboInyeccionChange" class="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-text-primary text-sm outline-none focus:border-accent-blue transition-colors appearance-none">
+                <option v-for="(op, idx) in inyeccionOpciones" :key="idx" :value="idx">{{ op }}</option>
+              </select>
+              <span class="text-xs text-text-secondary whitespace-nowrap bg-bg-surface px-2 py-1.5 rounded border border-border">Actual: {{ proc.as_Codigo_pozo_18 || '—' }}</span>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">Duración Prueba (Horas)</label>
+            <input v-model.number="form.duracionHoras" type="number" step="1" min="0" class="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-accent-yellow font-mono text-sm outline-none focus:border-accent-yellow transition-colors" />
+          </div>
+
+          <div class="col-span-full border-t border-border/50 my-2"></div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">Temperatura de Yacimiento</label>
+            <div class="relative">
+              <input v-model.number="form.tempYac" type="number" step="0.001" class="w-full bg-bg-primary border border-border rounded-lg pl-3 pr-10 py-2 text-text-primary text-sm outline-none focus:border-accent-steel transition-colors" />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-text-secondary">°C</span>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">API de Formación</label>
+            <div class="relative">
+              <input v-model.number="form.apiFormacion" type="number" step="0.001" class="w-full bg-bg-primary border border-border rounded-lg pl-3 pr-24 py-2 text-text-primary text-sm outline-none focus:border-accent-steel transition-colors" />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-text-secondary">@60°F, 1Atm</span>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">API de Mezcla</label>
+            <div class="relative">
+              <input v-model.number="form.apiMezcla" type="number" step="0.001" class="w-full bg-bg-primary border border-border rounded-lg pl-3 pr-24 py-2 text-text-primary text-sm outline-none focus:border-accent-steel transition-colors" />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-text-secondary">@60°F, 1Atm</span>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">API de Diluente</label>
+            <div class="relative">
+              <input v-model.number="form.apiDiluente" type="number" step="0.001" class="w-full bg-bg-primary border border-border rounded-lg pl-3 pr-24 py-2 text-text-primary text-sm outline-none focus:border-accent-steel transition-colors" />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-text-secondary">@60°F, 1Atm</span>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">Caudal de Diluente</label>
+            <div class="relative">
+              <input v-model.number="form.caudalDiluente" type="number" step="0.001" class="w-full bg-bg-primary border border-border rounded-lg pl-3 pr-12 py-2 text-text-primary text-sm outline-none focus:border-accent-steel transition-colors" />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-text-secondary">BBL/D</span>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="bg-bg-surface px-6 py-4 border-t border-border flex items-center justify-end gap-3">
+          <button @click="showCargar = false" class="px-5 py-2.5 text-xs font-bold text-text-secondary hover:text-text-primary bg-transparent hover:bg-text-primary/5 border border-border rounded-lg transition-all">
+            Cancelar
+          </button>
+          <button @click="guardarDatos" class="px-6 py-2.5 text-xs font-bold text-white bg-accent-blue hover:brightness-110 border border-accent-blue/50 rounded-lg shadow-lg flex items-center gap-2 transition-all">
+            <span>💾</span> Guardar en PLC
+          </button>
         </div>
       </div>
     </div>
-
   </div>
   `,
 
@@ -1554,6 +1602,377 @@ const InicioPruebaPage = {
       metodosProduccion, inyeccionOpciones,
       onComboMetodoChange, onComboInyeccionChange,
       guardarDatos, iniciarPrueba, pararPrueba, abortarPrueba, vaciarDatos,
+      showToast,
+      isLightMode,
+      toggleTheme
+    };
+  }
+};
+
+
+// ═══════════════════════════════════════════════════════════════
+// HISTÓRICO DE ALARMAS PAGE
+// ═══════════════════════════════════════════════════════════════
+const HistoricoAlarmasPage = {
+  name: 'HistoricoAlarmasPage',
+  template: `
+  <div class="px-4 py-6 flex flex-col w-full max-w-7xl mx-auto gap-5">
+
+    <!-- NUEVA ALARMA – banner flash -->
+    <transition name="inst-fade">
+      <div v-if="nuevosPendientes > 0"
+           class="flex items-center gap-3 px-4 py-2.5 bg-red-600/30 border border-red-500 rounded-lg animate-pulse">
+        <span class="text-red-400 text-lg">🚨</span>
+        <span class="text-red-300 text-sm font-bold">
+          {{ nuevosPendientes }} nueva{{ nuevosPendientes > 1 ? 's' : '' }} alarma{{ nuevosPendientes > 1 ? 's' : '' }} registrada{{ nuevosPendientes > 1 ? 's' : '' }}
+        </span>
+      </div>
+    </transition>
+
+    <!-- HEADER -->
+    <div class="flex items-center justify-between flex-wrap gap-3">
+      <div>
+        <div class="flex items-center gap-3">
+          <h1 class="text-xl font-bold text-text-primary tracking-wide">🚨 Histórico de Alarmas</h1>
+          <!-- Badge EN VIVO -->
+          <span class="flex items-center gap-1.5 px-2.5 py-1 bg-red-600/20 border border-red-500/50 rounded-full text-red-400 text-[10px] font-black uppercase tracking-wider">
+            <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping inline-block"></span>
+            EN VIVO
+          </span>
+        </div>
+        <p class="text-xs text-text-secondary mt-0.5">
+          Registro automático de transiciones de alarma
+          <span v-if="ultimaActualizacion" class="ml-2 text-green-400">
+            · Última: {{ ultimaActualizacion }}
+          </span>
+        </p>
+      </div>
+      <div class="flex gap-2 flex-wrap">
+        <button @click="cargar" :disabled="cargando"
+                class="px-4 py-2 bg-accent-blue hover:brightness-110 disabled:opacity-50 text-white text-xs font-bold rounded transition-all flex items-center gap-1.5">
+          <span>🔄</span> {{ cargando ? 'Cargando...' : 'Actualizar' }}
+        </button>
+        <button @click="exportarExcel"
+                class="px-4 py-2 bg-accent-green hover:brightness-110 text-white text-xs font-bold rounded transition-all flex items-center gap-1.5">
+          <span>📥</span> Descargar Excel
+        </button>
+      </div>
+    </div>
+
+    <!-- FILTROS -->
+    <div class="bg-bg-card border border-border rounded-xl p-5 flex flex-col gap-4">
+      <div class="text-xs font-bold text-text-secondary uppercase tracking-wider mb-1">Filtros de Búsqueda</div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <!-- Fecha inicio -->
+        <div class="flex flex-col gap-1">
+          <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">Desde</label>
+          <input type="datetime-local" v-model="filtro.inicio"
+                 class="bg-bg-primary border border-border rounded-md px-3 py-2 text-text-primary text-sm outline-none focus:border-accent-yellow transition-all" />
+        </div>
+        <!-- Fecha fin -->
+        <div class="flex flex-col gap-1">
+          <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">Hasta</label>
+          <input type="datetime-local" v-model="filtro.fin"
+                 class="bg-bg-primary border border-border rounded-md px-3 py-2 text-text-primary text-sm outline-none focus:border-accent-yellow transition-all" />
+        </div>
+        <!-- Instrumento -->
+        <div class="flex flex-col gap-1">
+          <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">Instrumento</label>
+          <select v-model="filtro.instrumento"
+                  class="bg-bg-primary border border-border rounded-md px-3 py-2 text-text-primary text-sm outline-none focus:border-accent-yellow transition-all">
+            <option value="">Todos</option>
+            <option v-for="i in instrumentos" :key="i" :value="i">{{ i }}</option>
+          </select>
+        </div>
+        <!-- Nivel -->
+        <div class="flex flex-col gap-1">
+          <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider">Nivel de Alarma</label>
+          <select v-model="filtro.nivel"
+                  class="bg-bg-primary border border-border rounded-md px-3 py-2 text-text-primary text-sm outline-none focus:border-accent-yellow transition-all">
+            <option value="">Todos</option>
+            <option value="HH">🔴 HH (Alto-Alto)</option>
+            <option value="H">🟠 H (Alto)</option>
+            <option value="L">🟡 L (Bajo)</option>
+            <option value="LL">🟣 LL (Bajo-Bajo)</option>
+            <option value="OK">✅ OK (Retorno Normal)</option>
+          </select>
+        </div>
+      </div>
+      <!-- Atajos de fecha -->
+      <div class="flex flex-wrap gap-2 items-center mt-1">
+        <span class="text-[10px] text-text-secondary font-bold uppercase tracking-wider mr-1">Período rápido:</span>
+        <button v-for="p in periodos" :key="p.label" @click="setPeriodo(p.horas)"
+                class="px-3 py-1 bg-bg-primary border border-border hover:border-accent-yellow text-text-secondary hover:text-text-primary text-xs rounded transition-all">
+          {{ p.label }}
+        </button>
+      </div>
+    </div>
+
+    <!-- RESUMEN DE CONTEOS -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3" v-if="rows.length > 0">
+      <div v-for="n in [{nivel:'HH',label:'Alto-Alto',color:'#ef4444'},{nivel:'H',label:'Alto',color:'#f97316'},
+                        {nivel:'L',label:'Bajo',color:'#eab308'},{nivel:'LL',label:'Bajo-Bajo',color:'#a855f7'},
+                        {nivel:'OK',label:'Retorno',color:'#22c55e'}]"
+           :key="n.nivel"
+           class="bg-bg-card border border-border rounded-lg p-3 text-center">
+        <div class="text-2xl font-black" :style="{color: n.color}">{{ conteoNivel(n.nivel) }}</div>
+        <div class="text-[10px] text-text-secondary uppercase tracking-wider mt-1">{{ n.label }}</div>
+      </div>
+    </div>
+
+    <!-- TABLA -->
+    <div class="bg-bg-card border border-border rounded-xl overflow-hidden">
+      <div v-if="cargando" class="py-16 text-center text-text-secondary text-sm">
+        ⏳ Cargando registros...
+      </div>
+      <div v-else-if="rows.length === 0" class="py-16 text-center text-text-secondary text-sm flex flex-col items-center gap-2">
+        <span class="text-4xl">🔕</span>
+        <div>No hay registros de alarmas en el período seleccionado.</div>
+        <div class="text-xs text-text-secondary">Las alarmas se registran automáticamente cada 10 segundos al detectar transiciones en los set-points.</div>
+      </div>
+      <div v-else class="overflow-x-auto">
+        <table class="w-full text-xs text-left border-collapse">
+          <thead>
+            <tr class="bg-bg-primary text-text-secondary border-b border-border uppercase tracking-wider text-[10px] font-bold">
+              <th class="p-3 w-8">#</th>
+              <th class="p-3">Fecha / Hora</th>
+              <th class="p-3">Instrumento</th>
+              <th class="p-3">Descripción</th>
+              <th class="p-3 text-center">Unidad</th>
+              <th class="p-3 text-right">Valor</th>
+              <th class="p-3 text-center">Nivel</th>
+              <th class="p-3 text-right">SP Activo</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(r, idx) in rowsPaginados" :key="r.id"
+                :class="['border-b border-border transition-all hover:brightness-110', rowBg(r.nivel)]">
+              <td class="p-3 text-text-secondary font-mono">{{ (pagina - 1) * porPagina + idx + 1 }}</td>
+              <td class="p-3 font-mono text-text-secondary whitespace-nowrap">{{ r.timestamp }}</td>
+              <td class="p-3 font-bold text-text-primary">{{ r.instrumento }}</td>
+              <td class="p-3 text-text-secondary" style="font-size:11px">{{ r.descripcion }}</td>
+              <td class="p-3 text-center text-text-secondary">{{ r.unidad }}</td>
+              <td class="p-3 text-right font-mono font-bold" :class="rowTxt(r.nivel)">{{ fmtVal(r.valor) }}</td>
+              <td class="p-3 text-center">
+                <span class="px-2 py-0.5 rounded text-[10px] font-black uppercase" :class="badgeClass(r.nivel)">
+                  {{ r.nivel === 'OK' ? '✅ Normal' : r.nivel }}
+                </span>
+              </td>
+              <td class="p-3 text-right text-text-secondary font-mono">{{ r.sp_activo !== null && r.sp_activo !== '' ? fmtVal(r.sp_activo) : '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Paginación -->
+        <div class="flex items-center justify-between px-4 py-3 border-t border-border bg-bg-primary">
+          <div class="text-xs text-text-secondary">
+            Mostrando {{ (pagina-1)*porPagina+1 }}–{{ Math.min(pagina*porPagina, rows.length) }} de {{ rows.length }} registros
+          </div>
+          <div class="flex gap-1">
+            <button @click="pagina = Math.max(1, pagina-1)" :disabled="pagina===1"
+                    class="px-3 py-1 bg-bg-card border border-border disabled:opacity-40 text-text-primary text-xs rounded hover:bg-bg-primary transition-all">◀</button>
+            <span class="px-3 py-1 text-xs text-text-secondary">{{ pagina }} / {{ totalPaginas }}</span>
+            <button @click="pagina = Math.min(totalPaginas, pagina+1)" :disabled="pagina===totalPaginas"
+                    class="px-3 py-1 bg-bg-card border border-border disabled:opacity-40 text-text-primary text-xs rounded hover:bg-bg-primary transition-all">▶</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`,
+
+  setup() {
+    const { ref, reactive, computed, onMounted } = Vue;
+
+    const rows     = ref([]);
+    const cargando = ref(false);
+    const pagina   = ref(1);
+    const porPagina = 8;   // Máximo 8 filas visibles por página
+
+    // Calcular inicio predeterminado: últimas 24 h
+    const ahora = new Date();
+    const hace24 = new Date(ahora.getTime() - 24 * 3600 * 1000);
+    const toLocal = d => {
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
+    const filtro = reactive({
+      inicio:      toLocal(hace24),
+      fin:         toLocal(ahora),
+      instrumento: '',
+      nivel:       '',
+    });
+
+    const periodos = [
+      { label: 'Última hora', horas: 1 },
+      { label: '6 horas',     horas: 6 },
+      { label: '24 horas',    horas: 24 },
+      { label: '7 días',      horas: 168 },
+      { label: '30 días',     horas: 720 },
+    ];
+
+    function setPeriodo(horas) {
+      const fin = new Date();
+      filtro.fin   = toLocal(fin);
+      filtro.inicio = toLocal(new Date(fin.getTime() - horas * 3600 * 1000));
+      cargar();
+    }
+
+    const instrumentos = [
+      'FI-03','GAS-01','LI-01','NIV-AUX',
+      'PDI-01','PDI-02','PDI-03','PDI-04',
+      'PI-01','PI-02','TI-01','TI-02','VI-01','WC'
+    ];
+
+    async function cargar() {
+      cargando.value = true;
+      pagina.value   = 1;
+      try {
+        const p = new URLSearchParams();
+        if (filtro.inicio) p.append('inicio', filtro.inicio.replace('T', ' ') + ':00');
+        if (filtro.fin)    p.append('fin',    filtro.fin.replace('T', ' ')    + ':59');
+        if (filtro.instrumento) p.append('instrumento', filtro.instrumento);
+        if (filtro.nivel)       p.append('nivel', filtro.nivel);
+        const r = await fetch(`/api/historico_alarmas?${p}`);
+        rows.value = await r.json();
+      } catch(e) { rows.value = []; }
+      finally     { cargando.value = false; }
+    }
+
+    function exportarExcel() {
+      const p = new URLSearchParams();
+      if (filtro.inicio) p.append('inicio', filtro.inicio.replace('T', ' ') + ':00');
+      if (filtro.fin)    p.append('fin',    filtro.fin.replace('T', ' ')    + ':59');
+      if (filtro.instrumento) p.append('instrumento', filtro.instrumento);
+      if (filtro.nivel)       p.append('nivel', filtro.nivel);
+      window.open(`/api/historico_alarmas/excel?${p}`, '_blank');
+    }
+
+    const totalPaginas = computed(() => Math.max(1, Math.ceil(rows.value.length / porPagina)));
+    const rowsPaginados = computed(() => {
+      const s = (pagina.value - 1) * porPagina;
+      return rows.value.slice(s, s + porPagina);
+    });
+
+    function conteoNivel(niv) {
+      return rows.value.filter(r => r.nivel === niv).length;
+    }
+    function fmtVal(v) {
+      const n = parseFloat(v);
+      return isNaN(n) ? '—' : n.toFixed(3);
+    }
+    function rowBg(nivel) {
+      return {
+        'bg-red-900/20':    nivel === 'HH',
+        'bg-orange-900/15': nivel === 'H',
+        'bg-yellow-900/10': nivel === 'L',
+        'bg-purple-900/15': nivel === 'LL',
+        'bg-green-900/10':  nivel === 'OK',
+      };
+    }
+    function rowTxt(nivel) {
+      return {
+        'text-red-400':    nivel === 'HH',
+        'text-orange-400': nivel === 'H',
+        'text-yellow-400': nivel === 'L',
+        'text-purple-400': nivel === 'LL',
+        'text-green-400':  nivel === 'OK',
+        'text-text-primary':      !nivel,
+      };
+    }
+    function badgeClass(nivel) {
+      return {
+        'bg-red-600 text-white':    nivel === 'HH',
+        'bg-orange-500 text-text-primary': nivel === 'H',
+        'bg-yellow-400 text-gray-900': nivel === 'L',
+        'bg-purple-600 text-text-primary': nivel === 'LL',
+        'bg-green-700 text-white':  nivel === 'OK',
+        'bg-gray-600 text-text-primary':   !nivel,
+      };
+    }
+
+    const ultimaActualizacion = ref('');
+    const nuevosPendientes    = ref(0);
+    let _socketListener = null;
+    let _pollInterval = null;
+
+    function _conectarSocket() {
+      // Reusar el socket global del App (window._appSocket) con reintentos
+      const _intentar = (intentos) => {
+        const sock = window._appSocket;
+        if (sock) {
+          _socketListener = (alarma) => {
+            const filtroNivel = filtro.nivel;
+            const filtroInst  = filtro.instrumento;
+            if (filtroNivel && alarma.nivel !== filtroNivel) return;
+            if (filtroInst  && alarma.instrumento !== filtroInst) return;
+
+            // Avanzar filtro.fin para incluir este registro
+            filtro.fin = toLocal(new Date());
+            rows.value.unshift(alarma);
+            ultimaActualizacion.value = alarma.timestamp;
+            nuevosPendientes.value += 1;
+            setTimeout(() => { nuevosPendientes.value = Math.max(0, nuevosPendientes.value - 1); }, 5000);
+            pagina.value = 1;
+          };
+          sock.on('new_alarm', _socketListener);
+        } else if (intentos < 20) {
+          // Reintentar cada 500 ms hasta 10 s
+          setTimeout(() => _intentar(intentos + 1), 500);
+        }
+      };
+      _intentar(0);
+    }
+
+    // ── Polling de respaldo cada 10 s (sincronizado con ciclo de detección) ──
+    function _iniciarPolling() {
+      _pollInterval = setInterval(async () => {
+        try {
+          const ahora = new Date();
+          const finFiltro = new Date(filtro.fin);
+          // Auto-avanzar "Hasta" solo si el filtro actual está cerca del presente (modo en vivo)
+          // Evita que registros nuevos queden fuera, y previene sobrescribir filtros históricos.
+          if (ahora - finFiltro < 120000) {
+            filtro.fin = toLocal(ahora);
+          }
+
+          const p = new URLSearchParams();
+          if (filtro.inicio) p.append('inicio', filtro.inicio.replace('T', ' ') + ':00');
+          p.append('fin', filtro.fin.replace('T', ' ') + ':59');
+          if (filtro.instrumento) p.append('instrumento', filtro.instrumento);
+          if (filtro.nivel)       p.append('nivel', filtro.nivel);
+          const r = await fetch(`/api/historico_alarmas?${p}`);
+          const nuevos = await r.json();
+          rows.value = nuevos;
+          if (nuevos.length > 0) {
+            ultimaActualizacion.value = new Date().toLocaleTimeString('es-VE');
+          }
+        } catch(e) {}
+      }, 10000);  // cada 10 segundos
+    }
+
+
+    onMounted(() => {
+      cargar();
+      _conectarSocket();
+      _iniciarPolling();
+    });
+
+    // Limpieza al desmontar el componente
+    const { onUnmounted } = Vue;
+    onUnmounted(() => {
+      // Quitar solo el listener, NO desconectar el socket compartido
+      if (_socketListener && window._appSocket) {
+        window._appSocket.off('new_alarm', _socketListener);
+      }
+      if (_pollInterval) clearInterval(_pollInterval);
+    });
+
+    return {
+      rows, cargando, filtro, pagina, porPagina, periodos, instrumentos,
+      totalPaginas, rowsPaginados, conteoNivel, fmtVal,
+      rowBg, rowTxt, badgeClass, cargar, exportarExcel, setPeriodo,
+      ultimaActualizacion, nuevosPendientes,
     };
   }
 };
@@ -1577,13 +1996,13 @@ const ReportesPage = {
         <button 
           @click="setMetodo('dates')" 
           :class="['flex-1 py-3 text-sm font-semibold transition-all border-r border-border focus:outline-none', 
-                   metodo === 'dates' ? 'bg-bg-card text-accent-yellow border-b-2 border-b-accent-yellow' : 'text-gray-400 hover:text-white hover:bg-bg-primary']">
+                   metodo === 'dates' ? 'bg-bg-card text-accent-yellow border-b-2 border-b-accent-yellow' : 'text-text-secondary hover:text-text-primary hover:bg-bg-primary']">
           📅 Por Rango de Fecha y Hora
         </button>
         <button 
           @click="setMetodo('pruebas')" 
           :class="['flex-1 py-3 text-sm font-semibold transition-all focus:outline-none', 
-                   metodo === 'pruebas' ? 'bg-bg-card text-accent-yellow border-b-2 border-b-accent-yellow' : 'text-gray-400 hover:text-white hover:bg-bg-primary']">
+                   metodo === 'pruebas' ? 'bg-bg-card text-accent-yellow border-b-2 border-b-accent-yellow' : 'text-text-secondary hover:text-text-primary hover:bg-bg-primary']">
           🧪 Por Histórico de Pruebas de Pozo
         </button>
       </div>
@@ -1592,30 +2011,30 @@ const ReportesPage = {
       <div v-if="metodo === 'dates'" class="flex flex-col md:flex-row gap-6 p-8 justify-center bg-bg-surface">
         <!-- Fecha Inicio -->
         <div class="flex-1 bg-bg-card border border-border shadow-sm rounded-lg p-5 flex flex-col items-center max-w-[300px]">
-          <div class="text-white font-bold mb-4 uppercase text-xs tracking-wider border-b border-border w-full text-center pb-2">Fecha Inicio</div>
+          <div class="text-text-primary font-bold mb-4 uppercase text-xs tracking-wider border-b border-border w-full text-center pb-2">Fecha Inicio</div>
           <div class="w-full flex flex-col gap-4 mt-2">
             <div class="relative">
-              <label class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1 block">Día</label>
-              <input type="date" v-model="fechaInicio" class="w-full bg-bg-primary border border-border rounded-md px-4 py-2 text-white text-sm outline-none focus:border-accent-yellow focus:ring-1 focus:ring-accent-yellow transition-all" />
+              <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider mb-1 block">Día</label>
+              <input type="date" v-model="fechaInicio" class="w-full bg-bg-primary border border-border rounded-md px-4 py-2 text-text-primary text-sm outline-none focus:border-accent-yellow focus:ring-1 focus:ring-accent-yellow transition-all" />
             </div>
             <div class="relative">
-              <label class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1 block">Hora</label>
-              <input type="time" v-model="horaInicio" class="w-full bg-bg-primary border border-border rounded-md px-4 py-2 text-white text-sm outline-none focus:border-accent-yellow focus:ring-1 focus:ring-accent-yellow transition-all" />
+              <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider mb-1 block">Hora</label>
+              <input type="time" v-model="horaInicio" class="w-full bg-bg-primary border border-border rounded-md px-4 py-2 text-text-primary text-sm outline-none focus:border-accent-yellow focus:ring-1 focus:ring-accent-yellow transition-all" />
             </div>
           </div>
         </div>
 
         <!-- Fecha Final -->
         <div class="flex-1 bg-bg-card border border-border shadow-sm rounded-lg p-5 flex flex-col items-center max-w-[300px]">
-          <div class="text-white font-bold mb-4 uppercase text-xs tracking-wider border-b border-border w-full text-center pb-2">Fecha Final</div>
+          <div class="text-text-primary font-bold mb-4 uppercase text-xs tracking-wider border-b border-border w-full text-center pb-2">Fecha Final</div>
           <div class="w-full flex flex-col gap-4 mt-2">
             <div class="relative">
-              <label class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1 block">Día</label>
-              <input type="date" v-model="fechaFin" class="w-full bg-bg-primary border border-border rounded-md px-4 py-2 text-white text-sm outline-none focus:border-accent-yellow focus:ring-1 focus:ring-accent-yellow transition-all" />
+              <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider mb-1 block">Día</label>
+              <input type="date" v-model="fechaFin" class="w-full bg-bg-primary border border-border rounded-md px-4 py-2 text-text-primary text-sm outline-none focus:border-accent-yellow focus:ring-1 focus:ring-accent-yellow transition-all" />
             </div>
             <div class="relative">
-              <label class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1 block">Hora</label>
-              <input type="time" v-model="horaFin" class="w-full bg-bg-primary border border-border rounded-md px-4 py-2 text-white text-sm outline-none focus:border-accent-yellow focus:ring-1 focus:ring-accent-yellow transition-all" />
+              <label class="text-[10px] text-text-secondary font-bold uppercase tracking-wider mb-1 block">Hora</label>
+              <input type="time" v-model="horaFin" class="w-full bg-bg-primary border border-border rounded-md px-4 py-2 text-text-primary text-sm outline-none focus:border-accent-yellow focus:ring-1 focus:ring-accent-yellow transition-all" />
             </div>
           </div>
         </div>
@@ -1638,25 +2057,25 @@ const ReportesPage = {
               type="text" 
               v-model="filtroBusqueda" 
               placeholder="Buscar por código, pozo, lugar, método o estado..." 
-              class="w-full bg-bg-primary border border-border rounded-md pl-10 pr-4 py-2 text-white text-sm outline-none focus:border-accent-yellow focus:ring-1 focus:ring-accent-yellow transition-all" 
+              class="w-full bg-bg-primary border border-border rounded-md pl-10 pr-4 py-2 text-text-primary text-sm outline-none focus:border-accent-yellow focus:ring-1 focus:ring-accent-yellow transition-all" 
             />
-            <span class="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
+            <span class="absolute left-3 top-2.5 text-text-secondary text-sm">🔍</span>
           </div>
           
-          <button @click="cargarPruebas" class="px-4 py-2 bg-bg-card border border-border hover:bg-bg-primary text-white font-semibold rounded text-xs flex items-center gap-2 transition-all">
+          <button @click="cargarPruebas" class="px-4 py-2 bg-bg-card border border-border hover:bg-bg-primary text-text-primary font-semibold rounded text-xs flex items-center gap-2 transition-all">
             <span>🔄</span> Actualizar Lista
           </button>
         </div>
 
         <!-- FILTROS DE DURACIÓN -->
         <div class="flex flex-wrap items-center gap-2 mb-4 bg-bg-card p-3 rounded-lg border border-border">
-          <span class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mr-2">Duración de Prueba:</span>
+          <span class="text-[10px] text-text-secondary font-bold uppercase tracking-wider mr-2">Duración de Prueba:</span>
           <button 
             v-for="opt in [{val:'all', label:'Todas'}, {val:'1', label:'1 h'}, {val:'3', label:'3 h'}, {val:'12', label:'12 h'}, {val:'24', label:'24 h'}, {val:'other', label:'Otras'}]"
             :key="opt.val"
             @click="duracionFiltro = opt.val"
             :class="['px-3 py-1 rounded text-xs font-semibold border transition-all', 
-                     duracionFiltro === opt.val ? 'bg-accent-yellow text-bg-primary border-accent-yellow shadow-md' : 'bg-bg-primary text-gray-300 border-border hover:text-white hover:bg-bg-card']"
+                     duracionFiltro === opt.val ? 'bg-accent-yellow text-bg-primary border-accent-yellow shadow-md' : 'bg-bg-primary text-text-secondary border-border hover:text-text-primary hover:bg-bg-card']"
           >
             {{ opt.label }}
           </button>
@@ -1664,15 +2083,15 @@ const ReportesPage = {
 
         <!-- TABLA DE PRUEBAS -->
         <div class="overflow-x-auto w-full border border-border rounded-lg bg-bg-card shadow-inner">
-          <div v-if="cargandoPruebas" class="py-10 text-center text-gray-400 text-sm">
+          <div v-if="cargandoPruebas" class="py-10 text-center text-text-secondary text-sm">
             Cargando historial de pruebas...
           </div>
-          <div v-else-if="pruebasFiltradas.length === 0" class="py-10 text-center text-gray-400 text-sm">
+          <div v-else-if="pruebasFiltradas.length === 0" class="py-10 text-center text-text-secondary text-sm">
             No se encontraron registros de pruebas.
           </div>
           <table v-else class="w-full text-xs text-left border-collapse">
             <thead>
-              <tr class="bg-bg-primary text-gray-300 border-b border-border uppercase tracking-wider text-[10px] font-bold">
+              <tr class="bg-bg-primary text-text-secondary border-b border-border uppercase tracking-wider text-[10px] font-bold">
                 <th class="p-3">ID</th>
                 <th class="p-3">Código Pozo</th>
                 <th class="p-3">Lugar / Pozo</th>
@@ -1685,20 +2104,20 @@ const ReportesPage = {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="p in pruebasFiltradas" :key="p.id" class="border-b border-border hover:bg-bg-primary hover:bg-opacity-50 text-white transition-all">
+              <tr v-for="p in pruebasPaginadas" :key="p.id" class="border-b border-border hover:bg-bg-primary hover:bg-opacity-50 text-text-primary transition-all">
                 <td class="p-3 font-semibold text-accent-yellow">#{{ p.id }}</td>
                 <td class="p-3 font-mono">{{ p.codigo_pozo || '-' }}</td>
                 <td class="p-3">
-                  <div class="font-medium text-white">{{ p.lugar || '-' }}</div>
-                  <div class="text-[10px] text-gray-400">Pozo: {{ p.pozo || '-' }}</div>
+                  <div class="font-medium text-text-primary">{{ p.lugar || '-' }}</div>
+                  <div class="text-[10px] text-text-secondary">Pozo: {{ p.pozo || '-' }}</div>
                 </td>
                 <td class="p-3">
                   <div>{{ p.metodo || '-' }}</div>
-                  <div class="text-[10px] text-gray-400">RPM: {{ p.rpm || '-' }}</div>
+                  <div class="text-[10px] text-text-secondary">RPM: {{ p.rpm || '-' }}</div>
                 </td>
                 <td class="p-3 font-semibold text-accent-blue">{{ p.duracion_horas }} h</td>
-                <td class="p-3 text-gray-300 font-mono text-[10px]">{{ p.fecha_inicio }}</td>
-                <td class="p-3 text-gray-300 font-mono text-[10px]">{{ p.fecha_fin || 'En progreso...' }}</td>
+                <td class="p-3 text-text-secondary font-mono text-[10px]">{{ p.fecha_inicio }}</td>
+                <td class="p-3 text-text-secondary font-mono text-[10px]">{{ p.fecha_fin || 'En progreso...' }}</td>
                 <td class="p-3 text-center">
                   <span :style="p.estado === 'Completada' ? 'background:#064e3b; color:#34d399; border: 1px solid #059669;' : 
                                 p.estado === 'Abortada' ? 'background:#7f1d1d; color:#f87171; border: 1px solid #dc2626;' : 
@@ -1719,6 +2138,22 @@ const ReportesPage = {
             </tbody>
           </table>
         </div>
+
+        <!-- CONTROLES DE PAGINACIÓN -->
+        <div v-if="totalPaginas > 1" class="flex justify-center items-center gap-2 mt-4 p-2">
+          <button @click="prevPag" :disabled="paginaActual === 1" class="px-3 py-1 bg-bg-primary text-text-secondary border border-border rounded hover:bg-white/10 disabled:opacity-50 transition-all text-xs font-semibold">Anterior</button>
+          
+          <div class="flex gap-1 overflow-x-auto max-w-[200px] sm:max-w-none" style="scrollbar-width: none;">
+            <button v-for="p in totalPaginas" :key="p" @click="irPag(p)"
+                    :class="['w-8 h-8 flex-shrink-0 flex items-center justify-center rounded text-xs font-bold transition-all',
+                             paginaActual === p ? 'bg-accent-yellow text-bg-primary shadow-md' : 'bg-bg-primary text-text-secondary border border-border hover:text-text-primary']">
+              {{ p }}
+            </button>
+          </div>
+          
+          <button @click="nextPag" :disabled="paginaActual === totalPaginas" class="px-3 py-1 bg-bg-primary text-text-secondary border border-border rounded hover:bg-white/10 disabled:opacity-50 transition-all text-xs font-semibold">Siguiente</button>
+        </div>
+
       </div>
     </div>
   </div>
@@ -1742,12 +2177,16 @@ const ReportesPage = {
     const filtroBusqueda = ref('');
     const duracionFiltro = ref('all');
 
+    const paginaActual = ref(1);
+    const itemsPorPagina = 5;
+
     async function cargarPruebas() {
       cargandoPruebas.value = true;
       try {
         const r = await fetch('/api/reportes/pruebas');
         if(r.ok) {
           pruebas.value = await r.json();
+          paginaActual.value = 1;
         }
       } catch(e) {
         console.error("Error cargando pruebas:", e);
@@ -1775,6 +2214,10 @@ const ReportesPage = {
       window.location.href = "/api/reportes/descargar?prueba_id=" + id;
     }
 
+    watch([filtroBusqueda, duracionFiltro], () => {
+      paginaActual.value = 1;
+    });
+
     const pruebasFiltradas = computed(() => {
       let list = pruebas.value;
 
@@ -1801,10 +2244,23 @@ const ReportesPage = {
       });
     });
 
+    const totalPaginas = computed(() => Math.ceil(pruebasFiltradas.value.length / itemsPorPagina));
+
+    const pruebasPaginadas = computed(() => {
+      const start = (paginaActual.value - 1) * itemsPorPagina;
+      const end = start + itemsPorPagina;
+      return pruebasFiltradas.value.slice(start, end);
+    });
+
+    function nextPag() { if (paginaActual.value < totalPaginas.value) paginaActual.value++; }
+    function prevPag() { if (paginaActual.value > 1) paginaActual.value--; }
+    function irPag(p) { paginaActual.value = p; }
+
     return { 
       fechaInicio, horaInicio, fechaFin, horaFin, descargar,
       metodo, pruebas, cargandoPruebas, filtroBusqueda, duracionFiltro,
-      setMetodo, descargarPrueba, pruebasFiltradas, cargarPruebas
+      setMetodo, descargarPrueba, pruebasFiltradas, cargarPruebas,
+      paginaActual, totalPaginas, pruebasPaginadas, nextPag, prevPag, irPag
     };
   }
 };
@@ -1816,24 +2272,24 @@ const PruebaProgresoPage = {
   name: 'PruebaProgresoPage',
   props: ['proc'],
   template: `
-  <div class="p-6 flex flex-col gap-6 w-full max-w-6xl mx-auto animation-fade-in overflow-y-auto h-full">
+  <div class="p-6 flex flex-col gap-6 w-full mx-auto animation-fade-in overflow-y-auto h-full">
 
     <!-- HEADER -->
     <div class="bg-bg-card border border-border rounded-xl p-4 grid grid-cols-3 gap-6">
       <div class="flex flex-col gap-1">
-        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Reporte</span><span class="text-accent-yellow font-mono">{{ data.reporte }}</span></div>
-        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Fecha Inicio</span><span class="text-accent-yellow font-mono">{{ data.fechaInicio }}</span></div>
-        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Hora Inicio</span><span class="text-accent-yellow font-mono">{{ data.horaInicio }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-text-primary font-bold uppercase">Reporte</span><span class="text-accent-yellow font-mono">{{ data.reporte }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-text-primary font-bold uppercase">Fecha Inicio</span><span class="text-accent-yellow font-mono">{{ data.fechaInicio }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-text-primary font-bold uppercase">Hora Inicio</span><span class="text-accent-yellow font-mono">{{ data.horaInicio }}</span></div>
       </div>
       <div class="flex flex-col gap-1">
-        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Método</span><span class="text-accent-yellow font-mono">{{ data.metodo }}</span></div>
-        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Pozo</span><span class="text-accent-yellow font-mono">{{ data.pozo }}</span></div>
-        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Tiempo Trans.</span><span class="text-accent-yellow font-mono">{{ data.tiempoTranscurrido }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-text-primary font-bold uppercase">Método</span><span class="text-accent-yellow font-mono">{{ data.metodo }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-text-primary font-bold uppercase">Pozo</span><span class="text-accent-yellow font-mono">{{ data.pozo }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-text-primary font-bold uppercase">Tiempo Trans.</span><span class="text-accent-yellow font-mono">{{ data.tiempoTranscurrido }}</span></div>
       </div>
       <div class="flex flex-col gap-1">
-        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">RPM Bomba</span><span class="text-accent-yellow font-mono">{{ data.rpmBomba }}</span></div>
-        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">API</span><span class="text-accent-yellow font-mono">{{ data.api }}</span></div>
-        <div class="flex justify-between text-xs py-0.5"><span class="text-white font-bold uppercase">Iny. Diluente</span><span class="text-accent-yellow font-mono">{{ data.inyeccionDiluente }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-text-primary font-bold uppercase">RPM Bomba</span><span class="text-accent-yellow font-mono">{{ data.rpmBomba }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-text-primary font-bold uppercase">API</span><span class="text-accent-yellow font-mono">{{ data.api }}</span></div>
+        <div class="flex justify-between text-xs py-0.5"><span class="text-text-primary font-bold uppercase">Iny. Diluente</span><span class="text-accent-yellow font-mono">{{ data.inyeccionDiluente }}</span></div>
       </div>
     </div>
 
@@ -1844,9 +2300,9 @@ const PruebaProgresoPage = {
           <span class="text-accent-blue font-bold text-[10px] uppercase tracking-widest">Monitor de Tendencias</span>
           <div class="flex gap-1 flex-wrap">
             <button v-for="v in trendVars" :key="v.key" @click="v.active=!v.active;rebuildCharts()"
-              :class="['px-1.5 py-0.5 rounded text-[8px] font-bold border transition-all',v.active?'text-white':'border-gray-700 text-gray-500']"
+              :class="['px-1.5 py-0.5 rounded text-[8px] font-bold border transition-all',v.active?'text-text-primary':'border-border text-text-secondary']"
               :style="v.active?{background:v.color,borderColor:v.color}:{}">{{ v.label }}</button>
-            <button @click="paused=!paused" class="px-1.5 py-0.5 text-[8px] bg-white/10 text-white border border-white/20 rounded ml-1">{{ paused?'▶':'⏸' }}</button>
+            <button @click="paused=!paused" class="px-1.5 py-0.5 text-[8px] bg-white/10 text-text-primary border border-white/20 rounded ml-1">{{ paused?'▶':'⏸' }}</button>
             <button @click="clearHistory" class="px-1.5 py-0.5 text-[8px] bg-accent-red/20 text-accent-red border border-accent-red/30 rounded">✕</button>
           </div>
         </div>
@@ -1856,7 +2312,7 @@ const PruebaProgresoPage = {
         <div class="bg-accent-blue/10 text-center text-accent-blue font-bold py-2 text-xs border-b border-border uppercase tracking-widest">Valores Actuales</div>
         <div class="p-3 flex flex-col gap-1">
           <div v-for="p in params" :key="p.label" class="flex justify-between items-center border-b border-border/20 py-1.5">
-            <span class="text-xs text-white font-bold uppercase">{{ p.label }}</span>
+            <span class="text-xs text-text-primary font-bold uppercase">{{ p.label }}</span>
             <span class="text-sm font-mono font-bold text-accent-yellow">{{ p.value }}</span>
           </div>
         </div>
@@ -1868,13 +2324,13 @@ const PruebaProgresoPage = {
       <div class="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col">
         <div class="flex items-center justify-between px-3 py-1.5 border-b border-border" style="background:rgba(26,100,150,0.2)">
           <span class="text-accent-blue font-bold text-[10px] uppercase">Cond. de Línea</span>
-          <button @click="pausedL=!pausedL" class="px-1.5 py-0.5 text-[8px] bg-white/10 text-white border border-white/20 rounded">{{ pausedL?'▶':'⏸' }}</button>
+          <button @click="pausedL=!pausedL" class="px-1.5 py-0.5 text-[8px] bg-white/10 text-text-primary border border-white/20 rounded">{{ pausedL?'▶':'⏸' }}</button>
         </div>
         <div class="p-3" style="height:220px"><canvas ref="c1"></canvas></div>
         <div class="border-t border-border/30 overflow-y-auto" style="max-height:210px">
           <table class="w-full text-[11px]"><tbody>
-            <tr v-for="r in condLinea" :key="r.label" class="border-b border-border/20 hover:bg-white/5">
-              <td class="px-3 py-1 text-white font-bold uppercase">{{ r.label }}</td>
+            <tr v-for="r in condLinea" :key="r.label" class="border-b border-border/20 hover:bg-text-primary/5">
+              <td class="px-3 py-1 text-text-primary font-bold uppercase">{{ r.label }}</td>
               <td class="px-3 py-1 text-right font-mono text-accent-yellow font-semibold">{{ r.value }}</td>
             </tr>
           </tbody></table>
@@ -1883,13 +2339,13 @@ const PruebaProgresoPage = {
       <div class="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col">
         <div class="flex items-center justify-between px-3 py-1.5 border-b border-border" style="background:rgba(39,167,102,0.15)">
           <span class="text-accent-green font-bold text-[10px] uppercase">Cond. Estándar (14.7 PSIA / 15.56°C)</span>
-          <button @click="pausedS=!pausedS" class="px-1.5 py-0.5 text-[8px] bg-white/10 text-white border border-white/20 rounded">{{ pausedS?'▶':'⏸' }}</button>
+          <button @click="pausedS=!pausedS" class="px-1.5 py-0.5 text-[8px] bg-white/10 text-text-primary border border-white/20 rounded">{{ pausedS?'▶':'⏸' }}</button>
         </div>
         <div class="p-3" style="height:220px"><canvas ref="c2"></canvas></div>
         <div class="border-t border-border/30 overflow-y-auto" style="max-height:210px">
           <table class="w-full text-[11px]"><tbody>
-            <tr v-for="r in condEstandar" :key="r.label" class="border-b border-border/20 hover:bg-white/5">
-              <td class="px-3 py-1 text-white font-bold uppercase">{{ r.label }}</td>
+            <tr v-for="r in condEstandar" :key="r.label" class="border-b border-border/20 hover:bg-text-primary/5">
+              <td class="px-3 py-1 text-text-primary font-bold uppercase">{{ r.label }}</td>
               <td class="px-3 py-1 text-right font-mono text-accent-yellow font-semibold">{{ r.value }}</td>
             </tr>
           </tbody></table>
@@ -1963,37 +2419,37 @@ const PruebaProgresoPage = {
     ]);
 
     const condLinea = computed(() => [
-      { label: 'Vol. Líquido (BBLS)', value: (parseFloat(props.proc.r_LIT_001 || 0) * 0.1).toFixed(3) },
-      { label: 'Vol. Crudo (BBLS)', value: (parseFloat(props.proc.r_P_Gas || 0) * 0.05).toFixed(3) },
-      { label: 'Vol. Crudo Neto (BBLS)', value: (parseFloat(props.proc.r_P_Gas || 0) * 0.045).toFixed(3) },
-      { label: 'Vol. Diluente (BBLS)', value: '0.000' },
-      { label: 'Vol. Agua (BBLS)', value: (parseFloat(props.proc.r_LIT_001 || 0) * 0.02).toFixed(3) },
-      { label: 'Vol. Gas Arrastrado (CF)', value: (parseFloat(props.proc.r_GVoidF || 0) * 1.2).toFixed(3) },
-      { label: 'Vol. Gas Total (MCF)', value: (parseFloat(props.proc.r_Q_gas_STD || 0) * 0.8).toFixed(3) },
-      { label: 'Tasa Est. Líquido (BPD)', value: (parseFloat(props.proc.r_LIT_001 || 0) * 2.4).toFixed(3) },
-      { label: 'Tasa Est. Crudo (BPD)', value: (parseFloat(props.proc.r_P_Gas || 0) * 1.2).toFixed(3) },
-      { label: 'Tasa Est. Crudo Neto (BPD)', value: (parseFloat(props.proc.r_P_Gas || 0) * 1.08).toFixed(3) },
-      { label: 'Tasa Est. Diluente (BPD)', value: '0.000' },
-      { label: 'Tasa Est. Agua (BPD)', value: (parseFloat(props.proc.r_LIT_001 || 0) * 0.48).toFixed(3) },
-      { label: 'Tasa Est. Gas Arrastrado (CFD)', value: (parseFloat(props.proc.r_GVoidF || 0) * 28.8).toFixed(3) },
-      { label: 'Tasa Est. Gas Total (MCFD)', value: (parseFloat(props.proc.r_Q_gas_STD || 0) * 19.2).toFixed(3) },
+      { label: 'Vol. Líquido (BBLS)', value: parseFloat(props.proc.Vol_Liquido || 0).toFixed(3) },
+      { label: 'Vol. Crudo (BBLS)', value: parseFloat(props.proc.Vol_Crudo || 0).toFixed(3) },
+      { label: 'Vol. Crudo Neto (BBLS)', value: parseFloat(props.proc.Vol_Crudo_Neto || 0).toFixed(3) },
+      { label: 'Vol. Diluente (BBLS)', value: parseFloat(props.proc.Vol_Diluente || 0).toFixed(3) },
+      { label: 'Vol. Agua (BBLS)', value: parseFloat(props.proc.Vol_Agua || 0).toFixed(3) },
+      { label: 'Vol. Gas Arrastrado (CF)', value: parseFloat(props.proc.Vol_Gas_Arr || 0).toFixed(3) },
+      { label: 'Vol. Gas Total (MCF)', value: parseFloat(props.proc.Vol_Gas_Total || 0).toFixed(3) },
+      { label: 'Tasa Est. Líquido (BPD)', value: parseFloat(props.proc.Est_Q_Liq || 0).toFixed(3) },
+      { label: 'Tasa Est. Crudo (BPD)', value: parseFloat(props.proc.Est_Q_Crudo || 0).toFixed(3) },
+      { label: 'Tasa Est. Crudo Neto (BPD)', value: parseFloat(props.proc.Est_Q_Neto || 0).toFixed(3) },
+      { label: 'Tasa Est. Diluente (BPD)', value: parseFloat(props.proc.Est_Q_Dil || 0).toFixed(3) },
+      { label: 'Tasa Est. Agua (BPD)', value: parseFloat(props.proc.Est_Q_Agua || 0).toFixed(3) },
+      { label: 'Tasa Est. Gas Arrastrado (CFD)', value: parseFloat(props.proc.Est_Q_gat || 0).toFixed(3) },
+      { label: 'Tasa Est. Gas Total (MCFD)', value: parseFloat(props.proc.Est_Q_gas_line || 0).toFixed(3) },
     ]);
 
     const condEstandar = computed(() => [
-      { label: 'Vol. Líquido (BBLS)', value: (parseFloat(props.proc.r_LIT_001 || 0) * 0.098).toFixed(3) },
-      { label: 'Vol. Crudo (BBLS)', value: (parseFloat(props.proc.r_P_Gas || 0) * 0.049).toFixed(3) },
-      { label: 'Vol. Crudo Neto (BBLS)', value: (parseFloat(props.proc.r_P_Gas || 0) * 0.044).toFixed(3) },
-      { label: 'Vol. Diluente (BBLS)', value: '0.000' },
-      { label: 'Vol. Agua (BBLS)', value: (parseFloat(props.proc.r_LIT_001 || 0) * 0.019).toFixed(3) },
-      { label: 'Vol. Gas Arrastrado (CF)', value: (parseFloat(props.proc.r_GVoidF || 0) * 1.15).toFixed(3) },
-      { label: 'Vol. Gas Total (MCF)', value: (parseFloat(props.proc.r_Q_gas_STD || 0) * 0.76).toFixed(3) },
-      { label: 'Tasa Est. Líquido (BPD)', value: (parseFloat(props.proc.r_LIT_001 || 0) * 2.35).toFixed(3) },
-      { label: 'Tasa Est. Crudo (BPD)', value: (parseFloat(props.proc.r_P_Gas || 0) * 1.17).toFixed(3) },
-      { label: 'Tasa Est. Crudo Neto (BPD)', value: (parseFloat(props.proc.r_P_Gas || 0) * 1.05).toFixed(3) },
-      { label: 'Tasa Est. Diluente (BPD)', value: '0.000' },
-      { label: 'Tasa Est. Agua (BPD)', value: (parseFloat(props.proc.r_LIT_001 || 0) * 0.46).toFixed(3) },
-      { label: 'Tasa Est. Gas Arrastrado (CFD)', value: (parseFloat(props.proc.r_GVoidF || 0) * 27.6).toFixed(3) },
-      { label: 'Tasa Est. Gas Total (MCFD)', value: (parseFloat(props.proc.r_Q_gas_STD || 0) * 18.2).toFixed(3) },
+      { label: 'Vol. Líquido (BBLS)', value: parseFloat(props.proc.Vol_Liquido_sc || 0).toFixed(3) },
+      { label: 'Vol. Crudo (BBLS)', value: parseFloat(props.proc.Vol_Crudo_sc || 0).toFixed(3) },
+      { label: 'Vol. Crudo Neto (BBLS)', value: parseFloat(props.proc.Vol_Crudo_Neto_sc || 0).toFixed(3) },
+      { label: 'Vol. Diluente (BBLS)', value: parseFloat(props.proc.Vol_Diluente_sc || 0).toFixed(3) },
+      { label: 'Vol. Agua (BBLS)', value: parseFloat(props.proc.Vol_Agua_sc || 0).toFixed(3) },
+      { label: 'Vol. Gas Arrastrado (CF)', value: parseFloat(props.proc.Vol_Gas_Arr_sc || 0).toFixed(3) },
+      { label: 'Vol. Gas Total (MCF)', value: parseFloat(props.proc.Vol_Gas_Total_sc || 0).toFixed(3) },
+      { label: 'Tasa Est. Líquido (BPD)', value: parseFloat(props.proc.Est_Q_Liq_sc || 0).toFixed(3) },
+      { label: 'Tasa Est. Crudo (BPD)', value: parseFloat(props.proc.Est_Q_Crudo_sc || 0).toFixed(3) },
+      { label: 'Tasa Est. Crudo Neto (BPD)', value: parseFloat(props.proc.Est_Q_Crudo_Neto_sc || 0).toFixed(3) },
+      { label: 'Tasa Est. Diluente (BPD)', value: parseFloat(props.proc.Est_Q_Dil_sc || 0).toFixed(3) },
+      { label: 'Tasa Est. Agua (BPD)', value: parseFloat(props.proc.Est_Q_Agua_sc || 0).toFixed(3) },
+      { label: 'Tasa Est. Gas Arrastrado (CFD)', value: parseFloat(props.proc.Est_Q_gat_sc || 0).toFixed(3) },
+      { label: 'Tasa Est. Gas Total (MCFD)', value: parseFloat(props.proc.Est_Q_Gas || 0).toFixed(3) },
     ]);
 
     const hist = reactive({ labels: [], data: {} });
@@ -2055,8 +2511,8 @@ const PropiedadesPage = {
   template: `
   <div class="p-6 flex flex-col gap-6 w-full max-w-5xl mx-auto animation-fade-in overflow-y-auto h-full">
     <div class="flex items-center justify-between">
-      <h1 class="text-xl font-bold text-white tracking-wide">⚙️ Configuración de Propiedades Físicas</h1>
-      <span class="live-badge">● EN VIVO</span>
+      <h1 class="text-xl font-bold text-text-primary tracking-wide">⚙️ Configuración de Propiedades Físicas</h1>
+      
     </div>
     
     <!-- SECTION 1: Referencias de Densidad Estandar -->
@@ -2066,27 +2522,27 @@ const PropiedadesPage = {
       </div>
       <div class="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-bg-surface/30">
         <div class="flex flex-col items-center text-center">
-          <label class="text-[10px] text-white font-bold uppercase mb-1">Densidad Ref Diluente</label>
-          <label class="text-[9px] text-gray-400 mb-2">(g/cm3 @ 60ºF, 14.7 PSIA)</label>
-          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.densidadRefDiluente" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          <label class="text-[10px] text-text-primary font-bold uppercase mb-1">Densidad Ref Diluente</label>
+          <label class="text-[9px] text-text-secondary mb-2">(g/cm3 @ 60ºF, 14.7 PSIA)</label>
+          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.densidadRefDiluente" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
           <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.densidadRefDiluente) }}</span>
         </div>
         <div class="flex flex-col items-center text-center">
-          <label class="text-[10px] text-white font-bold uppercase mb-1">Densidad Ref Crudo</label>
-          <label class="text-[9px] text-gray-400 mb-2">(g/cm3 @ 60ºF, 14.7 PSIA)</label>
-          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.densidadRefCrudo" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          <label class="text-[10px] text-text-primary font-bold uppercase mb-1">Densidad Ref Crudo</label>
+          <label class="text-[9px] text-text-secondary mb-2">(g/cm3 @ 60ºF, 14.7 PSIA)</label>
+          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.densidadRefCrudo" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
           <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.densidadRefCrudo) }}</span>
         </div>
         <div class="flex flex-col items-center text-center">
-          <label class="text-[10px] text-white font-bold uppercase mb-1">Grav Esp Gas</label>
-          <label class="text-[9px] text-gray-400 mb-2">(SG)</label>
-          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.gravEspGas" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          <label class="text-[10px] text-text-primary font-bold uppercase mb-1">Grav Esp Gas</label>
+          <label class="text-[9px] text-text-secondary mb-2">(SG)</label>
+          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.gravEspGas" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
           <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.gravEspGas) }}</span>
         </div>
         <div class="flex flex-col items-center text-center">
-          <label class="text-[10px] text-white font-bold uppercase mb-1">Presión Atm</label>
-          <label class="text-[9px] text-gray-400 mb-2">(PSIA)</label>
-          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.presionAtm" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          <label class="text-[10px] text-text-primary font-bold uppercase mb-1">Presión Atm</label>
+          <label class="text-[9px] text-text-secondary mb-2">(PSIA)</label>
+          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.presionAtm" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
           <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.presionAtm) }}</span>
         </div>
       </div>
@@ -2099,13 +2555,13 @@ const PropiedadesPage = {
       </div>
       <div class="p-4 grid grid-cols-1 sm:grid-cols-2 gap-8 bg-bg-surface/30">
         <div class="flex flex-col items-center text-center">
-          <label class="text-[10px] text-white font-bold uppercase mb-1">Constante de Gas (Kj/Kg/oK)</label>
-          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.constanteGas" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          <label class="text-[10px] text-text-primary font-bold uppercase mb-1">Constante de Gas (Kj/Kg/oK)</label>
+          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.constanteGas" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
           <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.constanteGas) }}</span>
         </div>
         <div class="flex flex-col items-center text-center">
-          <label class="text-[10px] text-white font-bold uppercase mb-1">Presión Crítica de Gas (PSIA)</label>
-          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.presionCriticaGas" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          <label class="text-[10px] text-text-primary font-bold uppercase mb-1">Presión Crítica de Gas (PSIA)</label>
+          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.presionCriticaGas" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
           <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.presionCriticaGas) }}</span>
         </div>
       </div>
@@ -2119,38 +2575,38 @@ const PropiedadesPage = {
       <div class="p-4 bg-bg-surface/30 flex flex-col items-center gap-4">
         <div class="grid grid-cols-2 gap-x-12 gap-y-2 w-full max-w-md">
           <div class="flex items-center justify-between gap-4">
-            <label class="text-[10px] text-white font-bold">A</label>
-            <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.A" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+            <label class="text-[10px] text-text-primary font-bold">A</label>
+            <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.A" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
             <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.A) }}</span>
           </div>
           <div class="flex items-center justify-between gap-4">
-            <label class="text-[10px] text-white font-bold">D</label>
-            <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.D" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+            <label class="text-[10px] text-text-primary font-bold">D</label>
+            <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.D" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
             <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.D) }}</span>
           </div>
           <div class="flex items-center justify-between gap-4">
-            <label class="text-[10px] text-white font-bold">B</label>
-            <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.B" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+            <label class="text-[10px] text-text-primary font-bold">B</label>
+            <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.B" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
             <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.B) }}</span>
           </div>
           <div class="flex items-center justify-between gap-4">
-            <label class="text-[10px] text-white font-bold">E</label>
-            <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.E" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+            <label class="text-[10px] text-text-primary font-bold">E</label>
+            <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.E" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
             <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.E) }}</span>
           </div>
           <div class="flex items-center justify-between gap-4">
-            <label class="text-[10px] text-white font-bold">C</label>
-            <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.C" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+            <label class="text-[10px] text-text-primary font-bold">C</label>
+            <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.C" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
             <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.C) }}</span>
           </div>
           <div class="flex items-center justify-between gap-4">
-            <label class="text-[10px] text-white font-bold">Z</label>
-            <span class="font-mono text-sm text-gray-400 font-semibold">{{ fmtP(propiedades.Z) }}</span>
+            <label class="text-[10px] text-text-primary font-bold">Z</label>
+            <span class="font-mono text-sm text-text-secondary font-semibold">{{ fmtP(propiedades.Z) }}</span>
           </div>
         </div>
         <div class="mt-2 pt-2 border-t border-border/50 w-full flex justify-center items-center gap-4">
-          <label class="text-[10px] text-white font-bold uppercase">Densidad del Gas (Kg/m3)</label>
-          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.densidadGas" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          <label class="text-[10px] text-text-primary font-bold uppercase">Densidad del Gas (Kg/m3)</label>
+          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.densidadGas" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
           <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.densidadGas) }}</span>
         </div>
       </div>
@@ -2163,13 +2619,13 @@ const PropiedadesPage = {
       </div>
       <div class="p-4 grid grid-cols-2 gap-8 bg-bg-surface/30">
         <div class="flex items-center justify-center gap-4">
-          <label class="text-[10px] text-white font-bold uppercase">Laminar</label>
-          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.laminar" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          <label class="text-[10px] text-text-primary font-bold uppercase">Laminar</label>
+          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.laminar" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
           <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.laminar) }}</span>
         </div>
         <div class="flex items-center justify-center gap-4">
-          <label class="text-[10px] text-white font-bold uppercase">Wedge</label>
-          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.wedge" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          <label class="text-[10px] text-text-primary font-bold uppercase">Wedge</label>
+          <input v-if="isEditing" type="number" step="any" v-model.number="propiedades.wedge" class="w-24 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
           <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ fmtP(propiedades.wedge) }}</span>
         </div>
       </div>
@@ -2177,18 +2633,14 @@ const PropiedadesPage = {
 
     <!-- FOOTER BUTTONS -->
     <div class="flex items-center justify-between mt-4">
-      <button class="w-10 h-10 rounded-full bg-accent-green flex items-center justify-center text-white shadow-lg hover:brightness-110 transition-all">
-        <span class="text-xl">⬅️</span>
+      <button @click="openPvt" class="px-8 py-2 bg-gray-300 hover:bg-white text-gray-800 font-bold rounded shadow-md border-b-4 border-gray-500 active:border-b-0 active:translate-y-1 transition-all">
+        PVT
       </button>
-      <div class="flex gap-4">
-        <button @click="openPvt" class="px-8 py-2 bg-gray-300 hover:bg-white text-gray-800 font-bold rounded shadow-md border-b-4 border-gray-500 active:border-b-0 active:translate-y-1 transition-all">
-          PVT
-        </button>
-        <button v-if="!isEditing" @click="isEditing = true" class="px-8 py-2 bg-accent-blue text-white font-bold rounded shadow-md border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all">
+      <button v-if="!isEditing" @click="isEditing = true" class="px-8 py-2 bg-accent-blue text-white font-bold rounded shadow-md border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all">
           Editar Propiedades
         </button>
         <template v-else>
-          <button @click="cancelarEdicion" class="px-8 py-2 bg-gray-600 hover:bg-gray-500 text-white font-bold rounded shadow-md border-b-4 border-gray-800 active:border-b-0 active:translate-y-1 transition-all">
+          <button @click="cancelarEdicion" class="px-8 py-2 bg-gray-600 hover:bg-gray-500 text-text-primary font-bold rounded shadow-md border-b-4 border-border active:border-b-0 active:translate-y-1 transition-all">
             Cancelar
           </button>
           <button @click="guardarPropiedades" class="px-8 py-2 bg-accent-green text-white font-bold rounded shadow-md border-b-4 border-green-700 active:border-b-0 active:translate-y-1 transition-all">
@@ -2248,6 +2700,7 @@ const PropiedadesPage = {
 // ═══════════════════════════════════════════════════════════════
 const PvtPage = {
   name: 'PvtPage',
+  props: ['proc'],
   emits: ['back', 'toast'],
   template: `
   <div class="p-6 flex flex-col gap-6 w-full max-w-5xl mx-auto animation-fade-in overflow-y-auto h-full">
@@ -2259,16 +2712,19 @@ const PvtPage = {
       </div>
       <div class="p-6 grid grid-cols-1 sm:grid-cols-3 gap-8 bg-bg-surface/30">
         <div class="flex flex-col items-center text-center">
-          <label class="text-[10px] text-white font-bold uppercase mb-1">Temp. Yacimiento (oF)</label>
-          <input type="number" v-model="pvt.tempYac" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          <label class="text-[10px] text-text-primary font-bold uppercase mb-1">Temp. Yacimiento (oF)</label>
+          <input v-if="pvtMode === 1" type="number" v-model="pvt.tempYac" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
+          <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ proc?.r_T_Yac_C || 0 }}</span>
         </div>
         <div class="flex flex-col items-center text-center">
-          <label class="text-[10px] text-white font-bold uppercase mb-1">RSO</label>
-          <input type="number" v-model="pvt.rso" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          <label class="text-[10px] text-text-primary font-bold uppercase mb-1">RSO</label>
+          <input v-if="pvtMode === 1" type="number" v-model="pvt.rso" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
+          <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ proc?.r_Rso_PT || 0 }}</span>
         </div>
         <div class="flex flex-col items-center text-center">
-          <label class="text-[10px] text-white font-bold uppercase mb-1">BO</label>
-          <input type="number" v-model="pvt.bo" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-white text-xs text-center outline-none focus:border-accent-yellow" />
+          <label class="text-[10px] text-text-primary font-bold uppercase mb-1">BO</label>
+          <input v-if="pvtMode === 1" type="number" v-model="pvt.bo" class="w-32 bg-bg-primary border border-border rounded px-2 py-1 text-text-primary text-xs text-center outline-none focus:border-accent-yellow" />
+          <span v-else class="font-mono text-sm text-accent-yellow font-semibold">{{ proc?.r_Bo_PT || 0 }}</span>
         </div>
       </div>
     </div>
@@ -2281,23 +2737,25 @@ const PvtPage = {
       <div class="overflow-x-auto bg-bg-surface/30">
         <table class="w-full text-xs text-left border-collapse">
           <thead>
-            <tr class="border-b border-border/50 bg-white/5">
-              <th class="p-3 font-bold text-gray-400 uppercase tracking-wider">Parámetro</th>
-              <th class="p-3 font-bold text-gray-400 uppercase tracking-wider text-center">Reales</th>
-              <th class="p-3 font-bold text-gray-400 uppercase tracking-wider text-center">Teórico</th>
-              <th class="p-3 font-bold text-gray-400 uppercase tracking-wider text-center">Error %</th>
+            <tr class="border-b border-border/50 bg-text-primary/5">
+              <th class="p-3 font-bold text-text-secondary uppercase tracking-wider">Parámetro</th>
+              <th class="p-3 font-bold text-text-secondary uppercase tracking-wider text-center">Reales</th>
+              <th class="p-3 font-bold text-text-secondary uppercase tracking-wider text-center">Teórico</th>
+              <th class="p-3 font-bold text-text-secondary uppercase tracking-wider text-center">Error %</th>
             </tr>
           </thead>
-          <tbody class="text-white">
-            <tr v-for="row in balanceRows" :key="row.label" class="border-b border-border/30 hover:bg-white/5 transition-colors">
+          <tbody class="text-text-primary">
+            <tr v-for="row in balanceRows" :key="row.label" class="border-b border-border/30 hover:bg-text-primary/5 transition-colors">
               <td class="p-3 font-semibold">{{ row.label }}</td>
               <td class="p-3 text-center">
-                <input type="number" v-model="pvt[row.key+'_real']" class="w-20 bg-bg-primary border border-border rounded px-1 text-xs text-center outline-none focus:border-accent-yellow" />
+                <input v-if="pvtMode === 1" type="number" v-model="pvt[row.key+'_real']" class="w-20 bg-bg-primary border border-border rounded px-1 text-xs text-center outline-none focus:border-accent-yellow" />
+                <span v-else class="font-mono text-xs text-accent-yellow">{{ (proc && row.real_key ? proc[row.real_key] : 0) || 0 }}</span>
               </td>
               <td class="p-3 text-center">
-                <input type="number" v-model="pvt[row.key+'_teo']" class="w-20 bg-bg-primary border border-border rounded px-1 text-xs text-center outline-none focus:border-accent-yellow" />
+                <input v-if="pvtMode === 1" type="number" v-model="pvt[row.key+'_teo']" class="w-20 bg-bg-primary border border-border rounded px-1 text-xs text-center outline-none focus:border-accent-yellow" />
+                <span v-else class="font-mono text-xs text-accent-yellow">{{ (proc && row.teo_key ? proc[row.teo_key] : 0) || 0 }}</span>
               </td>
-              <td class="p-3 text-center text-accent-yellow font-mono">{{ calcError(pvt[row.key+'_real'], pvt[row.key+'_teo']) }}%</td>
+              <td class="p-3 text-center text-accent-yellow font-mono">{{ calcError(pvtMode===1 ? pvt[row.key+'_real'] : (proc && row.real_key ? proc[row.real_key] : 0), pvtMode===1 ? pvt[row.key+'_teo'] : (proc && row.teo_key ? proc[row.teo_key] : 0)) }}%</td>
             </tr>
           </tbody>
         </table>
@@ -2322,7 +2780,7 @@ const PvtPage = {
         <span class="text-xl">⬅️</span>
       </button>
       <div class="flex justify-center flex-1">
-         <button @click="cargarDatos" class="px-8 py-2 bg-gray-300 hover:bg-white text-gray-800 font-bold rounded shadow-md border-b-4 border-gray-500 active:border-b-0 active:translate-y-1 transition-all">
+         <button v-if="pvtMode === 1" @click="cargarDatos" class="px-8 py-2 bg-gray-300 hover:bg-white text-gray-800 font-bold rounded shadow-md border-b-4 border-gray-500 active:border-b-0 active:translate-y-1 transition-all">
           Cargar Datos PVT
         </button>
       </div>
@@ -2347,14 +2805,14 @@ const PvtPage = {
     });
 
     const balanceRows = [
-      { label: 'API Formación @60ºF', key: 'apiForm' },
-      { label: 'API Mezcla @60ºF', key: 'apiMez' },
-      { label: 'API Diluente @60ºF', key: 'apiDil' },
-      { label: 'Q Diluente BBDL', key: 'qDil' },
-      { label: 'Q Neto BBDL', key: 'qNet' },
-      { label: 'Q Neto + Diluente BBDL', key: 'qNetDil' },
-      { label: 'Q Agua BBDL', key: 'qAgua' },
-      { label: 'Q Total BBDL', key: 'qTotal' }
+      { label: 'API Formación @60ºF', key: 'apiForm', real_key: 'r_API_formacion_BM', teo_key: 'r_API_formacion_BM' },
+      { label: 'API Mezcla @60ºF', key: 'apiMez', real_key: 'r_API_2', teo_key: 'r_API_MEZCLA_TEORICO' },
+      { label: 'API Diluente @60ºF', key: 'apiDil', real_key: 'r_API_1', teo_key: 'r_API_1' },
+      { label: 'Q Diluente BBDL', key: 'qDil', real_key: 'r_caudal_dil_BM', teo_key: 'r_caudal_dil_BM' },
+      { label: 'Q Neto BBDL', key: 'qNet', real_key: 'Q_Neto', teo_key: 'r_CAUDAL_NETO_TEORICO' },
+      { label: 'Q Neto + Diluente BBDL', key: 'qNetDil', real_key: 'Q_Crudo', teo_key: 'Q_Crudo' },
+      { label: 'Q Agua BBDL', key: 'qAgua', real_key: 'Q_Agua', teo_key: 'Q_Agua' },
+      { label: 'Q Total BBDL', key: 'qTotal', real_key: 'Q_Liq', teo_key: 'Q_Liq' }
     ];
 
     const showPvtModal = ref(false);
@@ -2447,13 +2905,13 @@ const DaqConfigPage = {
     <!-- Header -->
     <div class="flex items-center justify-between flex-wrap gap-3">
       <div>
-        <h1 class="text-xl font-bold text-white tracking-wide">📡 Configuración Modbus / DAQ</h1>
-        <p class="text-xs text-gray-400 mt-0.5">Lectura en tiempo real de canales AI y configuración de mapeo</p>
+        <h1 class="text-xl font-bold text-text-primary tracking-wide">📡 Configuración Modbus / DAQ</h1>
+        <p class="text-xs text-text-secondary mt-0.5">Lectura en tiempo real de canales AI y configuración de mapeo</p>
       </div>
       <div class="flex gap-2 flex-wrap">
         <button @click="forceReconnect"
                 :disabled="reconnecting"
-                :class="['px-3 py-1.5 text-white text-xs font-bold rounded transition-all',
+                :class="['px-3 py-1.5 text-text-primary text-xs font-bold rounded transition-all',
                           reconnecting ? 'bg-gray-600 cursor-wait' : 'bg-accent-blue hover:brightness-110']">
           {{ reconnecting ? '⏳ Reconectando...' : '🔄 Forzar Reconexión' }}
         </button>
@@ -2489,12 +2947,12 @@ const DaqConfigPage = {
                   :style="{background: live.connected ? '#27a766' : '#e55353'}"></span>
           </span>
           <div class="flex-1 min-w-0">
-            <div class="text-sm font-bold text-white">
+            <div class="text-sm font-bold text-text-primary">
               {{ live.connected ? '✅ DAQ Conectada' : live.stale ? '🟡 Sin Datos (Stale)' : '🔴 DAQ Desconectada' }}
             </div>
-            <div class="text-xs text-gray-400">
+            <div class="text-xs text-text-secondary">
               Última lectura: {{ live.ts || '--' }}
-              <span v-if="live.data_age_s > 1" class="ml-2" :class="live.stale ? 'text-yellow-400' : 'text-gray-500'">
+              <span v-if="live.data_age_s > 1" class="ml-2" :class="live.stale ? 'text-yellow-400' : 'text-text-secondary'">
                 (hace {{ live.data_age_s }} s)
               </span>
             </div>
@@ -2520,45 +2978,45 @@ const DaqConfigPage = {
         </div>
         <div class="grid grid-cols-3 gap-2 text-center">
           <div class="bg-bg-primary rounded-lg p-2">
-            <div class="text-xs text-gray-500">Puerto</div>
+            <div class="text-xs text-text-secondary">Puerto</div>
             <div class="text-sm font-mono font-bold text-accent-yellow">{{ live.port || '--' }}</div>
           </div>
           <div class="bg-bg-primary rounded-lg p-2">
-            <div class="text-xs text-gray-500">Baudrate</div>
+            <div class="text-xs text-text-secondary">Baudrate</div>
             <div class="text-sm font-mono font-bold text-accent-yellow">{{ live.baudrate || '--' }}</div>
           </div>
           <div class="bg-bg-primary rounded-lg p-2">
-            <div class="text-xs text-gray-500">Slave ID</div>
+            <div class="text-xs text-text-secondary">Slave ID</div>
             <div class="text-sm font-mono font-bold text-accent-yellow">{{ live.slave_id ?? '--' }}</div>
           </div>
         </div>
       </div>
 
       <!-- Card edición de conexión -->
-      <div class="bg-bg-card border border-gray-700 rounded-xl p-4 flex flex-col gap-3">
-        <div class="text-sm font-bold text-white mb-1">⚙️ Parámetros de Conexión RTU</div>
+      <div class="bg-bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
+        <div class="text-sm font-bold text-text-primary mb-1">⚙️ Parámetros de Conexión RTU</div>
         <div class="grid grid-cols-3 gap-3">
           <div class="flex flex-col gap-1">
-            <label class="text-xs text-gray-400">Puerto</label>
+            <label class="text-xs text-text-secondary">Puerto</label>
             <input v-model="connForm.port" placeholder="COM3"
-                   class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
+                   class="bg-bg-primary border border-border text-text-primary text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
           </div>
           <div class="flex flex-col gap-1">
-            <label class="text-xs text-gray-400">Baudrate</label>
+            <label class="text-xs text-text-secondary">Baudrate</label>
             <select v-model.number="connForm.baudrate"
-                    class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue">
+                    class="bg-bg-primary border border-border text-text-primary text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue">
               <option>1200</option><option>2400</option><option>4800</option>
               <option>9600</option><option>19200</option><option>38400</option>
               <option>57600</option><option>115200</option>
             </select>
           </div>
           <div class="flex flex-col gap-1">
-            <label class="text-xs text-gray-400">Slave ID</label>
+            <label class="text-xs text-text-secondary">Slave ID</label>
             <input v-model.number="connForm.slave_id" type="number" min="1" max="247"
-                   class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
+                   class="bg-bg-primary border border-border text-text-primary text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
           </div>
         </div>
-        <div class="grid grid-cols-3 gap-2 text-xs text-gray-400 mt-1">
+        <div class="grid grid-cols-3 gap-2 text-xs text-text-secondary mt-1">
           <span>Paridad: N, 8, 1</span>
           <span>Protocolo: Modbus RTU</span>
           <span>Formato: Engineering ×1000</span>
@@ -2567,28 +3025,28 @@ const DaqConfigPage = {
     </div>
 
     <!-- Canales AI en tiempo real -->
-    <div class="bg-bg-card border border-gray-700 rounded-xl overflow-hidden">
-      <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
-        <span class="text-sm font-bold text-white">📥 Canales de Entrada Analógica (AI) — Lectura en Vivo</span>
-        <span class="text-xs text-gray-500 font-mono">Actualización: cada 500 ms</span>
+    <div class="bg-bg-card border border-border rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-border flex items-center justify-between">
+        <span class="text-sm font-bold text-text-primary">📥 Canales de Entrada Analógica (AI) — Lectura en Vivo</span>
+        <span class="text-xs text-text-secondary font-mono">Actualización: cada 500 ms</span>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-xs">
           <thead>
-            <tr class="border-b border-gray-700 bg-bg-primary">
-              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-40">Variable V (fija)</th>
-              <th class="px-3 py-2 text-left text-gray-400 font-semibold">Descripción / Instrumento</th>
-              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-32">Address Canal Modbus</th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-24">Raw (xescala)</th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">Valor [mA]</th>
-              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-20">Estado</th>
-              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-20">Escala</th>
-              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-16">Editar</th>
+            <tr class="border-b border-border bg-bg-primary">
+              <th class="px-3 py-2 text-left text-text-secondary font-semibold w-40">Variable V (fija)</th>
+              <th class="px-3 py-2 text-left text-text-secondary font-semibold">Descripción / Instrumento</th>
+              <th class="px-3 py-2 text-center text-text-secondary font-semibold w-32">Address Canal Modbus</th>
+              <th class="px-3 py-2 text-right text-text-secondary font-semibold w-24">Raw (xescala)</th>
+              <th class="px-3 py-2 text-right text-text-secondary font-semibold w-28">Valor [mA]</th>
+              <th class="px-3 py-2 text-center text-text-secondary font-semibold w-20">Estado</th>
+              <th class="px-3 py-2 text-center text-text-secondary font-semibold w-20">Escala</th>
+              <th class="px-3 py-2 text-center text-text-secondary font-semibold w-16">Editar</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="ch in mergedChannels" :key="ch.var"
-                class="border-b border-gray-800 hover:bg-white/5 transition-colors"
+                class="border-b border-border hover:bg-text-primary/5 transition-colors"
                 :class="[!ch.enabled ? 'opacity-40' : ch.open_wire ? 'opacity-50' : '']">
               <!-- Variable V (fija) -->
               <td class="px-3 py-2">
@@ -2600,15 +3058,15 @@ const DaqConfigPage = {
               <td class="px-3 py-2">
                 <span v-if="editingCh === ch.var">
                   <input v-model="editForms[ch.var].description"
-                         class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1 w-full outline-none focus:border-accent-blue" />
+                         class="bg-bg-primary border border-border text-text-primary text-xs rounded px-2 py-1 w-full outline-none focus:border-accent-blue" />
                 </span>
-                <span v-else class="text-gray-200 font-medium">{{ ch.desc || '—' }}</span>
+                <span v-else class="text-text-primary font-medium">{{ ch.desc || '—' }}</span>
               </td>
               <!-- Address Canal Modbus (editable 0-5) -->
               <td class="px-3 py-2 text-center">
                 <span v-if="editingCh === ch.var">
                   <select v-model.number="editForms[ch.var].modbus_addr"
-                          class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-1.5 py-1 outline-none focus:border-accent-blue font-mono">
+                          class="bg-bg-primary border border-border text-text-primary text-xs rounded px-1.5 py-1 outline-none focus:border-accent-blue font-mono">
                     <option v-for="num in [0,1,2,3,4,5]" :key="num" :value="num">
                       CH:{{ String(num).padStart(2,'0') }} (addr {{ num }})
                     </option>
@@ -2616,12 +3074,12 @@ const DaqConfigPage = {
                 </span>
                 <span v-else class="flex flex-col items-center justify-center font-mono leading-tight">
                   <span class="text-accent-yellow font-bold">CH:{{ String(ch.modbus_addr).padStart(2,'0') }}</span>
-                  <span class="text-[10px] text-gray-500">addr {{ ch.modbus_addr }}</span>
+                  <span class="text-[10px] text-text-secondary">addr {{ ch.modbus_addr }}</span>
                 </span>
               </td>
               <!-- Raw (xescala) -->
               <td class="px-3 py-2 text-right font-mono">
-                <span :class="ch.open_wire ? 'text-red-400' : 'text-gray-300'">{{ ch.raw ?? '—' }}</span>
+                <span :class="ch.open_wire ? 'text-red-400' : 'text-text-secondary'">{{ ch.raw ?? '—' }}</span>
               </td>
               <!-- Valor [mA] -->
               <td class="px-3 py-2 text-right">
@@ -2642,7 +3100,7 @@ const DaqConfigPage = {
               <!-- Estado -->
               <td class="px-3 py-2 text-center">
                 <span v-if="!ch.enabled"
-                      class="px-2 py-0.5 text-xs font-bold rounded bg-gray-800 text-gray-400">DESHABILITADO</span>
+                      class="px-2 py-0.5 text-xs font-bold rounded bg-gray-800 text-text-secondary">DESHABILITADO</span>
                 <span v-else-if="ch.open_wire"
                       class="px-2 py-0.5 text-xs font-bold rounded bg-red-900/60 text-red-300">SIN SEÑAL</span>
                 <span v-else
@@ -2652,9 +3110,9 @@ const DaqConfigPage = {
               <td class="px-3 py-2 text-center font-mono">
                 <span v-if="editingCh === ch.var">
                   <input v-model.number="editForms[ch.var].scale" type="number" step="1"
-                         class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1 w-20 outline-none focus:border-accent-blue font-mono text-center" />
+                         class="bg-bg-primary border border-border text-text-primary text-xs rounded px-2 py-1 w-20 outline-none focus:border-accent-blue font-mono text-center" />
                 </span>
-                <span v-else class="text-gray-400 font-mono">{{ ch.scale ?? 1000 }}</span>
+                <span v-else class="text-text-secondary font-mono">{{ ch.scale ?? 1000 }}</span>
               </td>
               <!-- Editar -->
               <td class="px-3 py-2 text-center">
@@ -2665,7 +3123,7 @@ const DaqConfigPage = {
                   <button @click="saveCh(ch)"
                           class="px-2 py-0.5 text-xs bg-accent-green hover:brightness-110 text-white rounded">✓</button>
                   <button @click="editingCh = null"
-                          class="px-2 py-0.5 text-xs bg-gray-600 hover:brightness-110 text-white rounded">✕</button>
+                          class="px-2 py-0.5 text-xs bg-gray-600 hover:brightness-110 text-text-primary rounded">✕</button>
                 </div>
               </td>
             </tr>
@@ -2674,47 +3132,101 @@ const DaqConfigPage = {
       </div>
     </div>
 
-    <!-- Salidas analógicas (AO) - solo lectura por ahora -->
-    <div class="bg-bg-card border border-gray-700 rounded-xl overflow-hidden">
-      <div class="px-4 py-3 border-b border-gray-700">
-        <span class="text-sm font-bold text-white">📤 Canales de Salida Analógica (AO) — Control de Válvulas</span>
+    <!-- Salidas analógicas (AO) - Monitoreo en tiempo real -->
+    <div class="bg-bg-card border border-border rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-border">
+        <span class="text-sm font-bold text-text-primary">📤 Canales de Salida Analógica (AO) — Control de Válvulas</span>
       </div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
-        <div class="bg-bg-primary rounded-xl p-4 border border-gray-700 flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-accent-yellow">AO:00 — LCV-01 Válvula Nivel</span>
-            <span class="text-xs text-gray-500">addr: 20</span>
-          </div>
-          <div class="text-xs text-gray-400">Variable: <span class="font-mono text-white">fb_LEVEL_PID_r_CVEU</span></div>
-          <div class="text-xs text-gray-400">Escala salida: 0-100% → 0-10000 (×100)</div>
-          <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden mt-1">
-            <div class="h-full bg-accent-blue rounded-full" style="width:0%"></div>
-          </div>
-        </div>
-        <div class="bg-bg-primary rounded-xl p-4 border border-gray-700 flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-accent-yellow">AO:01 — PCV-01 Válvula Presión</span>
-            <span class="text-xs text-gray-500">addr: 21</span>
-          </div>
-          <div class="text-xs text-gray-400">Variable: <span class="font-mono text-white">fb_PRESS_PID_r_CVEU</span></div>
-          <div class="text-xs text-gray-400">Escala salida: 0-100% → 0-10000 (×100)</div>
-          <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden mt-1">
-            <div class="h-full bg-accent-blue rounded-full" style="width:0%"></div>
-          </div>
-        </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-sm">
+          <thead>
+            <tr class="bg-bg-primary text-text-secondary border-b border-border text-[11px] uppercase tracking-wider">
+              <th class="px-3 py-2 font-semibold">Variable / Descripción</th>
+              <th class="px-3 py-2 font-semibold text-center">Físico / Modbus</th>
+              <th class="px-3 py-2 font-semibold text-center">Scale Min/Max</th>
+              <th class="px-3 py-2 font-semibold text-right">Raw (mA)</th>
+              <th class="px-3 py-2 font-semibold text-right">Apertura %</th>
+              <th class="px-3 py-2 font-semibold text-center">Acción</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-700/50">
+            <tr v-for="ao in mergedAoChannels" :key="ao.var"
+                class="hover:bg-gray-800/30 transition-colors"
+                :class="{'opacity-50': !ao.enabled}">
+              <!-- Nombre y descripción -->
+              <td class="px-3 py-2">
+                <div class="font-mono font-bold text-accent-yellow">{{ ao.var }}</div>
+                <div v-if="editingCh === ao.var" class="mt-1">
+                  <input v-model="editForms[ao.var].description"
+                         class="bg-bg-primary border border-border text-text-primary text-xs rounded px-2 py-1 w-full outline-none focus:border-accent-blue"
+                         placeholder="Descripción corta" />
+                </div>
+                <div v-else class="text-xs text-text-secondary truncate w-48">{{ ao.desc }}</div>
+              </td>
+              <!-- Hardware / Modbus Addr -->
+              <td class="px-3 py-2 text-center">
+                <span v-if="editingCh === ao.var">
+                  <input v-model.number="editForms[ao.var].modbus_addr" type="number" min="0" max="255"
+                         class="bg-bg-primary border border-border text-text-primary text-xs rounded px-2 py-1 w-16 outline-none focus:border-accent-blue font-mono text-center" title="Modbus Addr" />
+                </span>
+                <span v-else class="flex flex-col items-center justify-center font-mono leading-tight">
+                  <span class="text-accent-yellow font-bold">CH:{{ String(ao.channel_addr).padStart(2,'0') }}</span>
+                  <span class="text-[10px] text-text-secondary">addr {{ ao.modbus_addr }}</span>
+                </span>
+              </td>
+              <!-- Escala Min/Max -->
+              <td class="px-3 py-2 text-center font-mono">
+                <span v-if="editingCh === ao.var" class="flex flex-col gap-1 items-center">
+                  <input v-model.number="editForms[ao.var].scale_min" type="number" step="1"
+                         class="bg-bg-primary border border-border text-text-primary text-xs rounded px-1 py-1 w-16 outline-none focus:border-accent-blue font-mono text-center" title="Scale Min" />
+                  <input v-model.number="editForms[ao.var].scale_max" type="number" step="1"
+                         class="bg-bg-primary border border-border text-text-primary text-xs rounded px-1 py-1 w-16 outline-none focus:border-accent-blue font-mono text-center" title="Scale Max" />
+                </span>
+                <span v-else class="text-text-secondary font-mono text-xs">{{ ao.scale_min }} - {{ ao.scale_max }}</span>
+              </td>
+              <!-- Raw (mA) -->
+              <td class="px-3 py-2 text-right font-mono">
+                <span class="text-accent-green font-bold">{{ ao.val_raw !== undefined && ao.val_raw !== null ? ao.val_raw.toFixed(0) : '4000' }}</span>
+                <div class="text-[10px] text-text-secondary mt-0.5">Raw</div>
+              </td>
+              <!-- Apertura % -->
+              <td class="px-3 py-2 text-right">
+                <div class="flex flex-col items-end gap-1">
+                  <span class="font-mono text-accent-blue font-bold">{{ ao.val_eu !== undefined && ao.val_eu !== null ? ao.val_eu.toFixed(1) : '0.0' }}%</span>
+                  <div class="w-16 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                    <div class="h-full bg-accent-blue rounded-full transition-all duration-300"
+                         :style="{width: Math.min(100, Math.max(0, ao.val_eu || 0)) + '%'}"></div>
+                  </div>
+                </div>
+              </td>
+              <!-- Editar -->
+              <td class="px-3 py-2 text-center">
+                <button v-if="editingCh !== ao.var"
+                        @click="startEditAo(ao)"
+                        class="px-2 py-0.5 text-xs bg-accent-blue hover:brightness-110 text-white rounded transition-all">✏️</button>
+                <div v-else class="flex flex-col gap-1 items-center">
+                  <button @click="saveAoCh(ao)"
+                          class="px-2 py-0.5 w-full text-xs bg-accent-green hover:brightness-110 text-white rounded">✓</button>
+                  <button @click="editingCh = null"
+                          class="px-2 py-0.5 w-full text-xs bg-gray-600 hover:brightness-110 text-text-primary rounded">✕</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
     <!-- Salidas digitales (DO) -->
-    <div class="bg-bg-card border border-gray-700 rounded-xl overflow-hidden">
-      <div class="px-4 py-3 border-b border-gray-700">
-        <span class="text-sm font-bold text-white">🔌 Salidas Digitales (DO) — No en uso actualmente</span>
+    <div class="bg-bg-card border border-border rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-border">
+        <span class="text-sm font-bold text-text-primary">🔌 Salidas Digitales (DO) — No en uso actualmente</span>
       </div>
       <div class="grid grid-cols-3 gap-3 p-4">
         <div v-for="i in 3" :key="i"
-             class="bg-bg-primary rounded-lg p-3 border border-gray-700 opacity-50 flex items-center gap-2">
+             class="bg-bg-primary rounded-lg p-3 border border-border opacity-50 flex items-center gap-2">
           <span class="w-3 h-3 rounded-full bg-gray-600"></span>
-          <span class="text-xs text-gray-500">DO:0{{ i-1 }} — Sin asignar</span>
+          <span class="text-xs text-text-secondary">DO:0{{ i-1 }} — Sin asignar</span>
         </div>
       </div>
     </div>
@@ -2734,9 +3246,14 @@ const DaqConfigPage = {
       connected: false, port: 'COM3', baudrate: 9600, slave_id: 1,
       simulating: false, channels: [], ts: '--',
       last_error: '', retry_in_s: 0, stale: false, data_age_s: 0,
+      ao_channels: [
+        { ch: 0, desc: 'LCV-01 Válvula Nivel', addr: 20, var: 'fb_LEVEL_PID_r_CVEU', val_eu: 0, val_raw: 4000 },
+        { ch: 1, desc: 'PCV-01 Válvula Presión', addr: 21, var: 'fb_PRESS_PID_r_CVEU', val_eu: 0, val_raw: 4000 }
+      ]
     });
     const connForm = reactive({ port: 'COM3', baudrate: 9600, slave_id: 1 });
     const dbConfig = ref([]);
+    const dbAoConfig = ref([]);
     const editingCh = ref(null);
     const editForms = reactive({});
     const toast = reactive({ show: false, ok: true, msg: '' });
@@ -2784,6 +3301,38 @@ const DaqConfigPage = {
       });
     });
 
+    // Mezcla datos en vivo + config AO BD
+    const mergedAoChannels = computed(() => {
+      const dbByVar = {};
+      dbAoConfig.value.forEach(c => { dbByVar[c.v_name] = c; });
+
+      const sortedDbConfig = [...dbAoConfig.value].sort((a, b) => a.channel_addr - b.channel_addr);
+      
+      const fixedVars = sortedDbConfig.length > 0 
+        ? sortedDbConfig.map(c => c.v_name)
+        : [
+            'r_Local_2_O_Ch0Data',
+            'r_Local_2_O_Ch1Data'
+          ];
+
+      return fixedVars.map((varName, index) => {
+        const dbCh = dbByVar[varName] || {};
+        const liveCh = (live.ao_channels || []).find(ch => ch.var === varName) || {};
+
+        return {
+          var: varName,
+          channel_addr: dbCh.channel_addr !== undefined ? dbCh.channel_addr : index,
+          desc: dbCh.description || liveCh.desc || '',
+          modbus_addr: dbCh.modbus_addr !== undefined ? dbCh.modbus_addr : (liveCh.ch !== undefined ? liveCh.ch : index),
+          scale_min: dbCh.scale_min !== undefined ? dbCh.scale_min : 4000,
+          scale_max: dbCh.scale_max !== undefined ? dbCh.scale_max : 20000,
+          enabled: dbCh.enabled !== undefined ? dbCh.enabled : 1,
+          val_eu: liveCh.val_eu,
+          val_raw: liveCh.val_raw
+        };
+      });
+    });
+
     function showToast(msg, ok = true) {
       toast.msg = msg; toast.ok = ok; toast.show = true;
       setTimeout(() => { toast.show = false; }, 2500);
@@ -2795,6 +3344,7 @@ const DaqConfigPage = {
         live.connected = d.connected;
         live.simulating = d.simulating;
         live.channels = d.channels;
+        live.ao_channels = d.ao_channels || live.ao_channels;
         live.ts = d.ts;
         live.last_error = d.last_error || '';
         live.retry_in_s = d.retry_in_s ?? 0;
@@ -2816,6 +3366,13 @@ const DaqConfigPage = {
       try {
         const d = await (await fetch('/api/daq/config')).json();
         dbConfig.value = d;
+      } catch (e) { }
+    }
+
+    async function loadDbAoConfig() {
+      try {
+        const d = await (await fetch('/api/daq/ao_config')).json();
+        dbAoConfig.value = d;
       } catch (e) { }
     }
 
@@ -2918,6 +3475,38 @@ const DaqConfigPage = {
       } catch (e) { showToast('❌ Error de red', false); }
     }
 
+    function startEditAo(ch) {
+      editingCh.value = ch.var;
+      editForms[ch.var] = {
+        description: ch.desc || '',
+        modbus_addr: ch.modbus_addr,
+        scale_min: ch.scale_min || 4000,
+        scale_max: ch.scale_max || 20000,
+      };
+    }
+
+    async function saveAoCh(ch) {
+      const f = editForms[ch.var];
+      try {
+        const r = await fetch('/api/daq/ao_config', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            channel_addr: ch.channel_addr,
+            v_name: ch.var,
+            description: f.description,
+            scale_min: f.scale_min,
+            scale_max: f.scale_max,
+            modbus_addr: f.modbus_addr,
+          }),
+        });
+        if (r.ok) {
+          showToast(`✅ ${ch.var} guardado`);
+          editingCh.value = null;
+          await loadDbAoConfig();
+        } else showToast('❌ Error al guardar', false);
+      } catch (e) { showToast('❌ Error de red', false); }
+    }
+
     const fmt = v => v !== null && v !== undefined ? parseFloat(v).toFixed(3) : '—';
 
     // Porcentaje 4-20 mA para la barra visual
@@ -2939,15 +3528,16 @@ const DaqConfigPage = {
     onMounted(() => {
       loadLive();
       loadDbConfig();
+      loadDbAoConfig();
       loadConnConfig();   // cargar parámetros guardados en BD
       liveTimer = setInterval(loadLive, 1000);
     });
     onUnmounted(() => { clearInterval(liveTimer); });
 
     return {
-      live, connForm, mergedChannels, editingCh, editForms, toast,
+      live, connForm, mergedChannels, mergedAoChannels, editingCh, editForms, toast,
       reconnecting, loadLive, forceReconnect, saveConnection,
-      startEdit, saveCh, fmt, maPercent, maColor, rebooting, rebootDaq
+      startEdit, saveCh, startEditAo, saveAoCh, fmt, maPercent, maColor, rebooting, rebootDaq
     };
   }
 };
@@ -2965,8 +3555,8 @@ const HartConfigPage = {
     <!-- Header -->
     <div class="flex items-center justify-between flex-wrap gap-3">
       <div>
-        <h1 class="text-xl font-bold text-white tracking-wide">⚡ Configuración Modbus HART</h1>
-        <p class="text-xs text-gray-400 mt-0.5">Tags fijos por slot. Edita la descripción y el HART Device asignado a cada instrumento.</p>
+        <h1 class="text-xl font-bold text-text-primary tracking-wide">⚡ Configuración Modbus HART</h1>
+        <p class="text-xs text-text-secondary mt-0.5">Tags fijos por slot. Edita la descripción y el HART Device asignado a cada instrumento.</p>
       </div>
       <div class="flex gap-2 flex-wrap">
         <button @click="loadLive"
@@ -3002,12 +3592,12 @@ const HartConfigPage = {
                   :style="{background: liveState.connected ? '#27a766' : '#e55353'}"></span>
           </span>
           <div class="flex-1 min-w-0">
-            <div class="text-sm font-bold text-white">
+            <div class="text-sm font-bold text-text-primary">
               {{ liveState.connected ? '✅ Gateway HART Conectado' : liveState.stale ? '🟡 Sin Datos (Stale)' : '🔴 Gateway HART Desconectado' }}
             </div>
-            <div class="text-xs text-gray-400">
+            <div class="text-xs text-text-secondary">
               Última lectura: {{ liveState.ts || '--' }}
-              <span v-if="liveState.data_age_s > 1" class="ml-2" :class="liveState.stale ? 'text-yellow-400' : 'text-gray-500'">
+              <span v-if="liveState.data_age_s > 1" class="ml-2" :class="liveState.stale ? 'text-yellow-400' : 'text-text-secondary'">
                 (hace {{ liveState.data_age_s }} s)
               </span>
             </div>
@@ -3030,21 +3620,21 @@ const HartConfigPage = {
         <div class="grid gap-2 text-center grid-cols-2">
           <template v-if="liveState.mode === 'tcp'">
             <div class="bg-bg-primary rounded-lg p-2">
-              <div class="text-xs text-gray-500">IP</div>
+              <div class="text-xs text-text-secondary">IP</div>
               <div class="text-sm font-mono font-bold text-accent-yellow">{{ liveState.ip || '--' }}</div>
             </div>
             <div class="bg-bg-primary rounded-lg p-2">
-              <div class="text-xs text-gray-500">Puerto</div>
+              <div class="text-xs text-text-secondary">Puerto</div>
               <div class="text-sm font-mono font-bold text-accent-yellow">{{ liveState.port || '--' }}</div>
             </div>
           </template>
           <template v-else>
             <div class="bg-bg-primary rounded-lg p-2">
-              <div class="text-xs text-gray-500">COM</div>
+              <div class="text-xs text-text-secondary">COM</div>
               <div class="text-sm font-mono font-bold text-accent-yellow">{{ liveState.com_port || '--' }}</div>
             </div>
             <div class="bg-bg-primary rounded-lg p-2">
-              <div class="text-xs text-gray-500">Baudrate</div>
+              <div class="text-xs text-text-secondary">Baudrate</div>
               <div class="text-sm font-mono font-bold text-accent-yellow">{{ liveState.baudrate || '--' }}</div>
             </div>
           </template>
@@ -3052,39 +3642,39 @@ const HartConfigPage = {
       </div>
 
       <!-- Card edición de conexión -->
-      <div class="bg-bg-card border border-gray-700 rounded-xl p-4 flex flex-col gap-3">
-        <div class="text-sm font-bold text-white mb-1">⚙️ Parámetros de Conexión Gateway</div>
+      <div class="bg-bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
+        <div class="text-sm font-bold text-text-primary mb-1">⚙️ Parámetros de Conexión Gateway</div>
         <div class="flex flex-col gap-1">
-          <label class="text-xs text-gray-400">Modo de Comunicación</label>
+          <label class="text-xs text-text-secondary">Modo de Comunicación</label>
           <select v-model="connForm.mode"
-                  class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue">
+                  class="bg-bg-primary border border-border text-text-primary text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue">
             <option value="tcp">Modbus TCP/IP (Ethernet) - Por defecto</option>
-            <option value="rtu">Modbus RTU (Puertos COM) - Opcional</option>
+            
           </select>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <template v-if="connForm.mode === 'tcp'">
             <div class="flex flex-col gap-1">
-              <label class="text-xs text-gray-400">Dirección IP</label>
+              <label class="text-xs text-text-secondary">Dirección IP</label>
               <input v-model="connForm.ip" placeholder="192.168.255.1"
-                     class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
+                     class="bg-bg-primary border border-border text-text-primary text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
             </div>
             <div class="flex flex-col gap-1">
-              <label class="text-xs text-gray-400">Puerto TCP</label>
+              <label class="text-xs text-text-secondary">Puerto TCP</label>
               <input v-model.number="connForm.port" type="number"
-                     class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
+                     class="bg-bg-primary border border-border text-text-primary text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
             </div>
           </template>
           <template v-if="connForm.mode === 'rtu'">
             <div class="flex flex-col gap-1">
-              <label class="text-xs text-gray-400">Puerto COM</label>
+              <label class="text-xs text-text-secondary">Puerto COM</label>
               <input v-model="connForm.com_port" placeholder="COM3"
-                     class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
+                     class="bg-bg-primary border border-border text-text-primary text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue font-mono" />
             </div>
             <div class="flex flex-col gap-1">
-              <label class="text-xs text-gray-400">Baudrate</label>
+              <label class="text-xs text-text-secondary">Baudrate</label>
               <select v-model.number="connForm.baudrate"
-                      class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue">
+                      class="bg-bg-primary border border-border text-text-primary text-xs rounded px-2 py-1.5 outline-none focus:border-accent-blue">
                 <option>1200</option><option>2400</option><option>4800</option>
                 <option>9600</option><option>19200</option><option>38400</option>
                 <option>57600</option><option>115200</option>
@@ -3096,47 +3686,47 @@ const HartConfigPage = {
     </div>
 
     <!-- Tabla de Instrumentos HART -->
-    <div class="bg-bg-card border border-gray-700 rounded-xl overflow-hidden">
-      <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
-        <span class="text-sm font-bold text-white">📥 Instrumentos HART (Mapeo por Slot)</span>
-        <span class="text-xs text-gray-500 font-mono">Actualización: cada 5 s</span>
+    <div class="bg-bg-card border border-border rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-border flex items-center justify-between">
+        <span class="text-sm font-bold text-text-primary">📥 Instrumentos HART (Mapeo por Slot)</span>
+        <span class="text-xs text-text-secondary font-mono">Actualización: cada 5 s</span>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-xs">
           <thead>
-            <tr class="border-b border-gray-700 bg-bg-primary">
-              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-8">N°</th>
-              <th class="px-3 py-2 text-left text-gray-400 font-semibold w-36">Tag / Rol</th>
-              <th class="px-3 py-2 text-left text-gray-400 font-semibold">Descripción</th>
-              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-32">HART Device</th>
-              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-20">Estado</th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">
-                PV1 <span class="text-gray-600 font-normal">mA/EU</span>
+            <tr class="border-b border-border bg-bg-primary">
+              <th class="px-3 py-2 text-left text-text-secondary font-semibold w-8">N°</th>
+              <th class="px-3 py-2 text-left text-text-secondary font-semibold w-36">Tag / Rol</th>
+              <th class="px-3 py-2 text-left text-text-secondary font-semibold">Descripción</th>
+              <th class="px-3 py-2 text-center text-text-secondary font-semibold w-32">HART Device</th>
+              <th class="px-3 py-2 text-center text-text-secondary font-semibold w-20">Estado</th>
+              <th class="px-3 py-2 text-right text-text-secondary font-semibold w-28">
+                PV1 <span class="text-text-secondary font-normal">mA/EU</span>
               </th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">
-                PV2 <span class="text-gray-600 font-normal">DP/EU</span>
+              <th class="px-3 py-2 text-right text-text-secondary font-semibold w-28">
+                PV2 <span class="text-text-secondary font-normal">DP/EU</span>
               </th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">
-                PV3 <span class="text-gray-600 font-normal">P/EU</span>
+              <th class="px-3 py-2 text-right text-text-secondary font-semibold w-28">
+                PV3 <span class="text-text-secondary font-normal">P/EU</span>
               </th>
-              <th class="px-3 py-2 text-right text-gray-400 font-semibold w-28">
-                PV4 <span class="text-gray-600 font-normal">T/EU</span>
+              <th class="px-3 py-2 text-right text-text-secondary font-semibold w-28">
+                PV4 <span class="text-text-secondary font-normal">T/EU</span>
               </th>
-              <th class="px-3 py-2 text-center text-gray-400 font-semibold w-16">Editar</th>
+              <th class="px-3 py-2 text-center text-text-secondary font-semibold w-16">Editar</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="ch in mergedHartChannels" :key="ch.channel_idx"
-                class="border-b border-gray-800 hover:bg-white/5 transition-colors"
+                class="border-b border-border hover:bg-text-primary/5 transition-colors"
                 :class="!ch.enabled ? 'opacity-40' : ''">
 
               <!-- N° -->
-              <td class="px-3 py-2 text-gray-500 font-mono text-center">{{ ch.channel_idx + 1 }}</td>
+              <td class="px-3 py-2 text-text-secondary font-mono text-center">{{ ch.channel_idx + 1 }}</td>
 
               <!-- Tag/Rol FIJO -->
               <td class="px-3 py-2">
                 <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wide"
-                      :class="ROLES[ch.instrument_type]?.badgeCls || 'bg-gray-700 text-gray-400'">
+                      :class="ROLES[ch.instrument_type]?.badgeCls || 'bg-gray-700 text-text-secondary'">
                   {{ ROLES[ch.instrument_type]?.label || 'Sin asignar' }}
                 </span>
               </td>
@@ -3145,34 +3735,34 @@ const HartConfigPage = {
               <td class="px-3 py-2">
                 <input v-if="editingCh === ch.channel_idx"
                        v-model="editForms[ch.channel_idx].description"
-                       class="bg-bg-primary border border-gray-600 text-white text-xs rounded px-2 py-1 w-full outline-none focus:border-accent-blue" />
-                <span v-else class="text-gray-200 font-medium">{{ ch.desc || '—' }}</span>
+                       class="bg-bg-primary border border-border text-text-primary text-xs rounded px-2 py-1 w-full outline-none focus:border-accent-blue" />
+                <span v-else class="text-text-primary font-medium">{{ ch.desc || '—' }}</span>
               </td>
 
               <!-- HART Device: editable o sólo lectura -->
               <td class="px-3 py-2 text-center">
                 <div v-if="editingCh === ch.channel_idx" class="flex flex-col gap-1.5 items-center">
                   <select v-model.number="editForms[ch.channel_idx].hart_device_index"
-                          class="bg-bg-primary border border-accent-yellow/60 text-white text-xs rounded px-1.5 py-1 outline-none focus:border-accent-yellow font-mono">
+                          class="bg-bg-primary border border-accent-yellow/60 text-text-primary text-xs rounded px-1.5 py-1 outline-none focus:border-accent-yellow font-mono">
                     <option v-for="n in Array.from({length: 15}, (_, i) => i)" :key="n" :value="n">
                       HART Device {{ n }}
                     </option>
                   </select>
-                  <label class="inline-flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer">
+                  <label class="inline-flex items-center gap-1 text-[10px] text-text-secondary cursor-pointer">
                     <input type="checkbox" v-model="editForms[ch.channel_idx].enabled" />
                     Habilitado
                   </label>
                 </div>
                 <div v-else class="flex flex-col items-center gap-0.5 leading-tight">
                   <span class="font-mono font-bold text-accent-yellow text-xs">HART Device {{ ch.hart_device_index }}</span>
-                  <span class="text-[9px] text-gray-500 font-mono">reg {{ 1300 + ch.hart_device_index * 10 }}</span>
+                  <span class="text-[9px] text-text-secondary font-mono">reg {{ 1300 + ch.hart_device_index * 10 }}</span>
                 </div>
               </td>
 
               <!-- Estado -->
               <td class="px-3 py-2 text-center">
                 <span v-if="!ch.enabled"
-                      class="px-2 py-0.5 text-xs font-bold rounded bg-gray-800 text-gray-400">DESC.</span>
+                      class="px-2 py-0.5 text-xs font-bold rounded bg-gray-800 text-text-secondary">DESC.</span>
                 <span v-else-if="ch.connected"
                       class="px-2 py-0.5 text-xs font-bold rounded bg-green-900/60 text-green-300">CONECTADO</span>
                 <span v-else
@@ -3181,23 +3771,23 @@ const HartConfigPage = {
 
               <!-- PV1 -->
               <td class="px-3 py-2 text-right font-mono">
-                <div class="text-gray-200">{{ fmtValue(ch.pv1) }}</div>
-                <div class="text-[9px] text-gray-500">{{ ROLES[ch.instrument_type]?.pv1lbl || 'EU' }}</div>
+                <div class="text-text-primary">{{ fmtValue(ch.pv1) }}</div>
+                <div class="text-[9px] text-text-secondary">{{ ROLES[ch.instrument_type]?.pv1lbl || 'EU' }}</div>
               </td>
               <!-- PV2 -->
               <td class="px-3 py-2 text-right font-mono">
-                <div class="text-gray-200">{{ fmtValue(ch.pv2) }}</div>
-                <div class="text-[9px] text-gray-500">{{ ROLES[ch.instrument_type]?.pv2lbl || 'EU' }}</div>
+                <div class="text-text-primary">{{ fmtValue(ch.pv2) }}</div>
+                <div class="text-[9px] text-text-secondary">{{ ROLES[ch.instrument_type]?.pv2lbl || 'EU' }}</div>
               </td>
               <!-- PV3 -->
               <td class="px-3 py-2 text-right font-mono">
-                <div class="text-gray-200">{{ fmtValue(ch.pv3) }}</div>
-                <div class="text-[9px] text-gray-500">{{ ROLES[ch.instrument_type]?.pv3lbl || 'EU' }}</div>
+                <div class="text-text-primary">{{ fmtValue(ch.pv3) }}</div>
+                <div class="text-[9px] text-text-secondary">{{ ROLES[ch.instrument_type]?.pv3lbl || 'EU' }}</div>
               </td>
               <!-- PV4 -->
               <td class="px-3 py-2 text-right font-mono">
-                <div class="text-gray-200">{{ fmtValue(ch.pv4) }}</div>
-                <div class="text-[9px] text-gray-500">{{ ROLES[ch.instrument_type]?.pv4lbl || 'EU' }}</div>
+                <div class="text-text-primary">{{ fmtValue(ch.pv4) }}</div>
+                <div class="text-[9px] text-text-secondary">{{ ROLES[ch.instrument_type]?.pv4lbl || 'EU' }}</div>
               </td>
 
               <!-- Editar -->
@@ -3209,7 +3799,7 @@ const HartConfigPage = {
                   <button @click="saveCh(ch)"
                           class="px-2 py-0.5 text-xs bg-accent-green hover:brightness-110 text-white rounded">✓</button>
                   <button @click="editingCh = null"
-                          class="px-2 py-0.5 text-xs bg-gray-600 hover:brightness-110 text-white rounded">✕</button>
+                          class="px-2 py-0.5 text-xs bg-gray-600 hover:brightness-110 text-text-primary rounded">✕</button>
                 </div>
               </td>
             </tr>
@@ -3219,15 +3809,15 @@ const HartConfigPage = {
     </div>
 
     <!-- Leyenda de roles -->
-    <div class="bg-bg-card border border-gray-700 rounded-xl p-4">
-      <div class="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wide">Leyenda de Roles — Variables inyectadas</div>
+    <div class="bg-bg-card border border-border rounded-xl p-4">
+      <div class="text-xs font-bold text-text-secondary mb-2 uppercase tracking-wide">Leyenda de Roles — Variables inyectadas</div>
       <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2">
-        <div v-for="(r, key) in ROLES" :key="key" class="flex flex-col gap-0.5 bg-bg-primary rounded-lg p-2 border border-gray-800">
+        <div v-for="(r, key) in ROLES" :key="key" class="flex flex-col gap-0.5 bg-bg-primary rounded-lg p-2 border border-border">
           <span class="px-1.5 py-0.5 rounded text-[10px] font-bold mb-1 w-fit" :class="r.badgeCls">{{ r.label }}</span>
-          <div class="text-[10px] text-gray-500">PV1: <span class="text-gray-300">{{ r.pv1lbl }}</span></div>
-          <div class="text-[10px] text-gray-500">PV2: <span class="text-gray-300">{{ r.pv2lbl }}</span></div>
-          <div class="text-[10px] text-gray-500">PV3: <span class="text-gray-300">{{ r.pv3lbl }}</span></div>
-          <div class="text-[10px] text-gray-500">PV4: <span class="text-gray-300">{{ r.pv4lbl }}</span></div>
+          <div class="text-[10px] text-text-secondary">PV1: <span class="text-text-secondary">{{ r.pv1lbl }}</span></div>
+          <div class="text-[10px] text-text-secondary">PV2: <span class="text-text-secondary">{{ r.pv2lbl }}</span></div>
+          <div class="text-[10px] text-text-secondary">PV3: <span class="text-text-secondary">{{ r.pv3lbl }}</span></div>
+          <div class="text-[10px] text-text-secondary">PV4: <span class="text-text-secondary">{{ r.pv4lbl }}</span></div>
           <div v-if="r.injects" class="mt-1 text-[9px] text-accent-yellow font-mono">→ {{ r.injects }}</div>
         </div>
       </div>
@@ -3303,7 +3893,7 @@ const HartConfigPage = {
       },
       NONE: {
         label: 'Sin asignar',
-        badgeCls: 'bg-gray-700 text-gray-400',
+        badgeCls: 'bg-gray-700 text-text-secondary',
         pv1lbl: 'EU', pv2lbl: 'EU', pv3lbl: 'EU', pv4lbl: 'EU',
         injects: null
       }
@@ -3461,8 +4051,8 @@ const CalibracionPage = {
     <!-- Header -->
     <div class="flex items-center justify-between flex-shrink-0">
       <div>
-        <h1 class="text-xl font-bold text-white tracking-wide">🎯 Datos de Calibración</h1>
-        <p class="text-xs text-gray-400 mt-0.5">Parámetros físicos de los medidores — Los campos con fondo oscuro son solo lectura (calculados por el PLC)</p>
+        <h1 class="text-xl font-bold text-text-primary tracking-wide"> Datos de Calibración</h1>
+        <p class="text-xs text-text-secondary mt-0.5">Parámetros físicos de los medidores — Los campos con fondo oscuro son solo lectura (calculados por el PLC)</p>
       </div>
       <button @click="guardarTodo"
         class="px-4 py-2 bg-accent-green hover:brightness-110 text-white text-sm font-bold rounded-lg transition-all shadow-lg flex items-center gap-2">
@@ -3475,7 +4065,7 @@ const CalibracionPage = {
 
       <!-- ══ PANEL 1: WEDGE GAS ══ -->
       <div class="calib-panel">
-        <div class="calib-panel-header">⛽ Wedge Gas</div>
+        <div class="calib-panel-header"> Wedge Gas</div>
         <div class="calib-body">
 
           <div class="calib-row">
@@ -3514,7 +4104,7 @@ const CalibracionPage = {
 
       <!-- ══ PANEL 2: WEDGE CRUDO ══ -->
       <div class="calib-panel">
-        <div class="calib-panel-header">🛢️ Calibración Wedge Crudo</div>
+        <div class="calib-panel-header"> Calibración Wedge Crudo</div>
         <div class="calib-body">
 
           <div class="calib-row">
@@ -3549,7 +4139,7 @@ const CalibracionPage = {
 
       <!-- ══ PANEL 3: LAMINAR ══ -->
       <div class="calib-panel">
-        <div class="calib-panel-header">🌊 Calibración Laminar</div>
+        <div class="calib-panel-header"> Calibración Laminar</div>
         <div class="calib-body">
 
           <div class="calib-row">
@@ -3598,13 +4188,8 @@ const CalibracionPage = {
         </div>
       </div>
 
-    </div><!-- /grid -->
+    </div>
 
-    <!-- Nota al pie -->
-    <p class="text-xs text-gray-500 mt-auto flex-shrink-0">
-      ⚠️ Los cambios se aplican inmediatamente en la memoria del SoftPLC. Los valores calculados (sin fondo editable)
-      se actualizan automáticamente con cada ciclo del PLC.
-    </p>
   </div>`,
 
   setup(_, { emit }) {
@@ -3675,62 +4260,80 @@ const ConfigInstrument2Page = {
   emits: ['toast'],
   template: `
   <div class="p-4 overflow-y-auto h-full">
-    <div class="inst-panel-container">
-      <h2 class="inst-panel-title">Selección de Instrumentos</h2>
+    <div class="prof-panel-container">
+      <h2 class="prof-panel-title">Selección de Instrumentos</h2>
       
-      <div class="inst-grid">
+      <div class="prof-grid">
         
         <!-- Control PID Gas -->
-        <div class="inst-card">
-          <div class="inst-card-title">Control PID Gas</div>
-          <div class="inst-card-buttons">
-            <button @click="toggleSelection('b_Control_PID_Gas')" class="retro-3d-btn">
-              {{ instrumentSelection.b_Control_PID_Gas ? 'NIVEL' : 'PRESION' }}
+        <div class="prof-card">
+          <div class="prof-card-header">
+            <div class="prof-card-title">Control PID Gas</div>
+            <span class="prof-badge" :class="instrumentSelection.b_Control_PID_Gas ? 'prof-badge-teal' : 'prof-badge-primary'">
+              {{ instrumentSelection.b_Control_PID_Gas ? 'NIVEL' : 'PRESIÓN' }}
+            </span>
+          </div>
+          <div class="prof-btn-group">
+            <button @click="setSelection('b_Control_PID_Gas', false)" 
+                    :class="['prof-btn', instrumentSelection.b_Control_PID_Gas ? 'inactive' : 'active active-primary']">
+              PRESIÓN
+            </button>
+            <button @click="setSelection('b_Control_PID_Gas', true)" 
+                    :class="['prof-btn', !instrumentSelection.b_Control_PID_Gas ? 'inactive' : 'active active-teal']">
+              NIVEL
             </button>
           </div>
         </div>
 
         <!-- Selector de Nivel -->
-        <div class="inst-card">
-          <div class="inst-card-title">Selector de Nivel</div>
-          <div class="inst-card-buttons">
-            <button @click="toggleSelection('b_PID_POSIC_SW')" class="retro-3d-btn">
+        <div class="prof-card">
+          <div class="prof-card-header">
+            <div class="prof-card-title">Selector de Nivel</div>
+            <span class="prof-badge" :class="instrumentSelection.b_PID_POSIC_SW ? 'prof-badge-secondary' : 'prof-badge-blue'">
               {{ instrumentSelection.b_PID_POSIC_SW ? 'LIT-01-Aux' : 'LIT-01' }}
+            </span>
+          </div>
+          <div class="prof-btn-group">
+            <button @click="setSelection('b_PID_POSIC_SW', false)" 
+                    :class="['prof-btn', instrumentSelection.b_PID_POSIC_SW ? 'inactive' : 'active active-blue']">
+              LIT-01
+            </button>
+            <button @click="setSelection('b_PID_POSIC_SW', true)" 
+                    :class="['prof-btn', !instrumentSelection.b_PID_POSIC_SW ? 'inactive' : 'active active-secondary']">
+              LIT-01-Aux
             </button>
           </div>
         </div>
 
         <!-- Instrumento Medidor de Gas -->
-        <div class="inst-card" :class="{'inst-card--wide': instrumentSelection.b_Sw_Wedge_Gas}">
-          <div class="inst-card-title">
-            💨 Instrumento Medidor de Gas
-            <span class="inst-mode-badge" :class="instrumentSelection.b_Sw_Wedge_Gas ? 'badge-teal' : 'badge-purple'">
+        <div class="prof-card" :class="{'prof-card-wide': instrumentSelection.b_Sw_Wedge_Gas}">
+          <div class="prof-card-header">
+            <div class="prof-card-title">💨 Instrumento Medidor de Gas</div>
+            <span class="prof-badge" :class="instrumentSelection.b_Sw_Wedge_Gas ? 'prof-badge-teal' : 'prof-badge-purple'">
               {{ instrumentSelection.b_Sw_Wedge_Gas ? (instrumentSelection.b_Sw_Wedge_Gas_2 ? 'GAS MV' : 'GAS DP') : 'VORTEX' }}
             </span>
           </div>
-          <div class="inst-card-buttons">
+          <div class="prof-btn-group">
             <button @click="setMedidorGas('VORTEX')" 
-                    :class="['retro-3d-btn', instrumentSelection.b_Sw_Wedge_Gas ? 'inactive' : 'active-purple']">
+                    :class="['prof-btn', instrumentSelection.b_Sw_Wedge_Gas ? 'inactive' : 'active active-purple']">
               VORTEX
             </button>
             <button @click="setMedidorGas('GAS')" 
-                    :class="['retro-3d-btn', !instrumentSelection.b_Sw_Wedge_Gas ? 'inactive' : 'active-teal']">
+                    :class="['prof-btn', !instrumentSelection.b_Sw_Wedge_Gas ? 'inactive' : 'active active-teal']">
               GAS (DP/MV)
             </button>
           </div>
 
           <transition name="inst-fade">
-            <div v-if="instrumentSelection.b_Sw_Wedge_Gas" class="inst-submenu">
-              <div class="inst-submenu-label">► Seleccionar Tipo de Gas:</div>
-              <div class="inst-card-buttons">
+            <div v-if="instrumentSelection.b_Sw_Wedge_Gas" class="prof-submenu">
+              <div class="prof-submenu-label">► Seleccionar Tipo de Gas:</div>
+              <div class="prof-btn-group">
                 <button @click="setTipoGas('DP')"
-                        :class="['retro-3d-btn', instrumentSelection.b_Sw_Wedge_Gas_2 ? 'inactive' : 'active-green']"
-                        style="padding: 6px 16px; min-width: 90px; font-size: 12px;">
+                        :class="['prof-btn', instrumentSelection.b_Sw_Wedge_Gas_2 ? 'inactive' : 'active active-green']">
                   GAS DP
                 </button>
                 <button @click="setTipoGas('MV')"
-                        :class="['retro-3d-btn', !instrumentSelection.b_Sw_Wedge_Gas_2 ? 'inactive' : 'active-orange']"
-                        style="padding: 6px 16px; min-width: 90px; font-size: 12px;">
+                        :class="['prof-btn', !instrumentSelection.b_Sw_Wedge_Gas_2 ? 'inactive' : 'active active-orange']">
                   GAS MV
                 </button>
               </div>
@@ -3739,36 +4342,34 @@ const ConfigInstrument2Page = {
         </div>
 
         <!-- Flujo de Diluente -->
-        <div class="inst-card" :class="{'inst-card--wide': instrumentSelection.b_SW_DIL_MEDIDO_CALC}">
-          <div class="inst-card-title">
-            💧 Flujo de Diluente
-            <span class="inst-mode-badge" :class="instrumentSelection.b_SW_DIL_MEDIDO_CALC ? 'badge-teal' : 'badge-purple'">
+        <div class="prof-card" :class="{'prof-card-wide': instrumentSelection.b_SW_DIL_MEDIDO_CALC}">
+          <div class="prof-card-header">
+            <div class="prof-card-title">💧 Flujo de Diluente</div>
+            <span class="prof-badge" :class="instrumentSelection.b_SW_DIL_MEDIDO_CALC ? 'prof-badge-teal' : 'prof-badge-purple'">
               {{ instrumentSelection.b_SW_DIL_MEDIDO_CALC ? (instrumentSelection.b_sel_tipo_instrum_dil ? 'PASIVO' : 'ACTIVO') : 'MANUAL' }}
             </span>
           </div>
-          <div class="inst-card-buttons">
+          <div class="prof-btn-group">
             <button @click="setDiluente('MANUAL')" 
-                    :class="['retro-3d-btn', instrumentSelection.b_SW_DIL_MEDIDO_CALC ? 'inactive' : 'active-purple']">
+                    :class="['prof-btn', instrumentSelection.b_SW_DIL_MEDIDO_CALC ? 'inactive' : 'active active-purple']">
               MANUAL
             </button>
             <button @click="setDiluente('INSTRUM')" 
-                    :class="['retro-3d-btn', !instrumentSelection.b_SW_DIL_MEDIDO_CALC ? 'inactive' : 'active-teal']">
+                    :class="['prof-btn', !instrumentSelection.b_SW_DIL_MEDIDO_CALC ? 'inactive' : 'active active-teal']">
               INSTRUMENTO
             </button>
           </div>
 
           <transition name="inst-fade">
-            <div v-if="instrumentSelection.b_SW_DIL_MEDIDO_CALC" class="inst-submenu">
-              <div class="inst-submenu-label">► Tipo de Instrumento de Diluente:</div>
-              <div class="inst-card-buttons">
+            <div v-if="instrumentSelection.b_SW_DIL_MEDIDO_CALC" class="prof-submenu">
+              <div class="prof-submenu-label">► Tipo de Instrumento de Diluente:</div>
+              <div class="prof-btn-group">
                 <button @click="setTipoDiluente('ACTIVO')"
-                        :class="['retro-3d-btn', instrumentSelection.b_sel_tipo_instrum_dil ? 'inactive' : 'active-green']"
-                        style="padding: 6px 16px; min-width: 90px; font-size: 12px;">
+                        :class="['prof-btn', instrumentSelection.b_sel_tipo_instrum_dil ? 'inactive' : 'active active-green']">
                   ACTIVO
                 </button>
                 <button @click="setTipoDiluente('PASIVO')"
-                        :class="['retro-3d-btn', !instrumentSelection.b_sel_tipo_instrum_dil ? 'inactive' : 'active-orange']"
-                        style="padding: 6px 16px; min-width: 90px; font-size: 12px;">
+                        :class="['prof-btn', !instrumentSelection.b_sel_tipo_instrum_dil ? 'inactive' : 'active active-orange']">
                   PASIVO
                 </button>
               </div>
@@ -3777,36 +4378,34 @@ const ConfigInstrument2Page = {
         </div>
 
         <!-- Selector cuña de gas -->
-        <div class="inst-card" :class="{'inst-card--wide': !instrumentSelection.b_AUTO_GAS_01}">
-          <div class="inst-card-title">
-            🎛️ Selector cuña de gas
-            <span class="inst-mode-badge" :class="instrumentSelection.b_AUTO_GAS_01 ? 'badge-green' : 'badge-purple'">
+        <div class="prof-card" :class="{'prof-card-wide': !instrumentSelection.b_AUTO_GAS_01}">
+          <div class="prof-card-header">
+            <div class="prof-card-title">🎛️ Selector cuña de gas</div>
+            <span class="prof-badge" :class="instrumentSelection.b_AUTO_GAS_01 ? 'prof-badge-green' : 'prof-badge-purple'">
               {{ instrumentSelection.b_AUTO_GAS_01 ? 'AUTOMÁTICO' : (instrumentSelection.b_SEL_VLV_GAS_01 ? 'MANUAL (ALTA)' : 'MANUAL (BAJA)') }}
             </span>
           </div>
-          <div class="inst-card-buttons">
+          <div class="prof-btn-group">
             <button @click="setCunaGas('MANUAL')" 
-                    :class="['retro-3d-btn', instrumentSelection.b_AUTO_GAS_01 ? 'inactive' : 'active-purple']">
+                    :class="['prof-btn', instrumentSelection.b_AUTO_GAS_01 ? 'inactive' : 'active active-purple']">
               MANUAL
             </button>
             <button @click="setCunaGas('AUTO')" 
-                    :class="['retro-3d-btn', !instrumentSelection.b_AUTO_GAS_01 ? 'inactive' : 'active-green']">
+                    :class="['prof-btn', !instrumentSelection.b_AUTO_GAS_01 ? 'inactive' : 'active active-green']">
               AUTOMÁTICO
             </button>
           </div>
 
           <transition name="inst-fade">
-            <div v-if="!instrumentSelection.b_AUTO_GAS_01" class="inst-submenu">
-              <div class="inst-submenu-label">► Selección de Válvula Manual:</div>
-              <div class="inst-card-buttons">
+            <div v-if="!instrumentSelection.b_AUTO_GAS_01" class="prof-submenu">
+              <div class="prof-submenu-label">► Selección de Válvula Manual:</div>
+              <div class="prof-btn-group">
                 <button @click="setVlvGas('BAJA')"
-                        :class="['retro-3d-btn', instrumentSelection.b_SEL_VLV_GAS_01 ? 'inactive' : 'active-orange']"
-                        style="padding: 6px 16px; min-width: 90px; font-size: 12px;">
+                        :class="['prof-btn', instrumentSelection.b_SEL_VLV_GAS_01 ? 'inactive' : 'active active-orange']">
                   BAJA
                 </button>
                 <button @click="setVlvGas('ALTA')"
-                        :class="['retro-3d-btn', !instrumentSelection.b_SEL_VLV_GAS_01 ? 'inactive' : 'active-teal']"
-                        style="padding: 6px 16px; min-width: 90px; font-size: 12px;">
+                        :class="['prof-btn', !instrumentSelection.b_SEL_VLV_GAS_01 ? 'inactive' : 'active active-teal']">
                   ALTA
                 </button>
               </div>
@@ -3815,58 +4414,56 @@ const ConfigInstrument2Page = {
         </div>
 
         <!-- Método de Medición de Líquido -->
-        <div class="inst-card inst-card--wide">
-          <div class="inst-card-title">
-            👧 Método de Medición de Líquido
-            <span class="inst-mode-badge" :class="modoLiquidoBadgeClass">{{ modoLiquidoLabel }}</span>
+        <div class="prof-card prof-card-wide">
+          <div class="prof-card-header">
+            <div class="prof-card-title"> Método de Medición de Líquido</div>
+            <span class="prof-badge" :class="modoLiquidoBadgeClass.replace('badge-', 'prof-badge-')">{{ modoLiquidoLabel }}</span>
           </div>
 
           <!-- Nivel 1: Automatico / Manual -->
-          <div class="inst-card-buttons">
+          <div class="prof-btn-group">
             <!-- AUTOMATICO: b_sw_AM_Laminar_Wedge_x = true -->
             <button @click="setModoLiquido('AUTOMATICO')"
-                    :class="['retro-3d-btn', !instrumentSelection.b_sw_AM_Laminar_Wedge_x ? 'inactive' : 'active-green']">
+                    :class="['prof-btn', !instrumentSelection.b_sw_AM_Laminar_Wedge_x ? 'inactive' : 'active active-green']">
               ⚡ AUTOMÁTICO
             </button>
             <!-- MANUAL: b_sw_AM_Laminar_Wedge_x = false -->
             <button @click="setModoLiquido('MANUAL')"
-                    :class="['retro-3d-btn', instrumentSelection.b_sw_AM_Laminar_Wedge_x ? 'inactive' : 'active-blue']">
+                    :class="['prof-btn', instrumentSelection.b_sw_AM_Laminar_Wedge_x ? 'inactive' : 'active active-blue']">
               🔧 MANUAL
             </button>
           </div>
 
           <!-- Nivel 2: Sub-selección (solo visible en MANUAL) -->
           <transition name="inst-fade">
-            <div v-if="!instrumentSelection.b_sw_AM_Laminar_Wedge_x" class="inst-submenu">
-              <div class="inst-submenu-label">► Seleccionar Método Manual:</div>
-              <div class="inst-card-buttons">
+            <div v-if="!instrumentSelection.b_sw_AM_Laminar_Wedge_x" class="prof-submenu mt-4">
+              <div class="prof-submenu-label">► Seleccionar Método Manual:</div>
+              <div class="prof-btn-group">
                 <!-- LAMINAR: b_sw_AM_Laminar_Wedge_y = false -->
                 <button @click="setModoManual('LAMINAR')"
-                        :class="['retro-3d-btn', instrumentSelection.b_sw_AM_Laminar_Wedge_y ? 'inactive' : 'active-purple']">
+                        :class="['prof-btn', instrumentSelection.b_sw_AM_Laminar_Wedge_y ? 'inactive' : 'active active-purple']">
                   🌀 LAMINAR
                 </button>
                 <!-- WEDGE: b_sw_AM_Laminar_Wedge_y = true -->
                 <button @click="setModoManual('WEDGE')"
-                        :class="['retro-3d-btn', !instrumentSelection.b_sw_AM_Laminar_Wedge_y ? 'inactive' : 'active-teal']">
+                        :class="['prof-btn', !instrumentSelection.b_sw_AM_Laminar_Wedge_y ? 'inactive' : 'active active-teal']">
                   🔷 WEDGE
                 </button>
               </div>
 
               <!-- Nivel 3: Sub-selección Transmisor Laminar -->
               <transition name="inst-fade">
-                <div v-if="!instrumentSelection.b_sw_AM_Laminar_Wedge_y" class="mt-4 pt-3" style="border-top: 2px dashed rgba(15, 61, 92, 0.3);">
-                  <div class="inst-submenu-label" style="font-size: 11px; margin-bottom: 10px;">► Transmisor Laminar:</div>
-                  <div class="inst-card-buttons">
+                <div v-if="!instrumentSelection.b_sw_AM_Laminar_Wedge_y" class="mt-4 pt-4" style="border-top: 1px dashed rgba(255,255,255,0.1);">
+                  <div class="prof-submenu-label">► Transmisor Laminar:</div>
+                  <div class="prof-btn-group">
                     <!-- AUTO: b_SEL_T_baja = false -->
                     <button @click="setTransmisorLaminar('AUTO')"
-                            :class="['retro-3d-btn', instrumentSelection.b_SEL_T_baja ? 'inactive' : 'active-green']"
-                            style="padding: 6px 16px; min-width: 90px; font-size: 12px;">
+                            :class="['prof-btn', instrumentSelection.b_SEL_T_baja ? 'inactive' : 'active active-green']">
                       ⚡ AUTOMÁTICO
                     </button>
                     <!-- BAJA: b_SEL_T_baja = true -->
                     <button @click="setTransmisorLaminar('BAJA')"
-                            :class="['retro-3d-btn', !instrumentSelection.b_SEL_T_baja ? 'inactive' : 'active-orange']"
-                            style="padding: 6px 16px; min-width: 90px; font-size: 12px;">
+                            :class="['prof-btn', !instrumentSelection.b_SEL_T_baja ? 'inactive' : 'active active-orange']">
                       🔽 BAJA
                     </button>
                   </div>
@@ -3878,18 +4475,18 @@ const ConfigInstrument2Page = {
 
       </div>
 
-      <div class="inst-panel-footer">
-        NOTA: El texto en los botones representa el ESTADO ACTUAL del mismo
-      </div>
+      
     </div>
   </div>`,
   setup(props, { emit }) {
     async function updateSelection(payload) {
+      // Merge with current state so we don't omit keys (backend defaults omitted keys to False)
+      const fullPayload = { ...props.instrumentSelection, ...payload };
       try {
         const response = await fetch('/api/instrument_selection', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(fullPayload)
         });
         if (response.ok) {
           emit('toast', '✅ Configuración de instrumento actualizada');
@@ -4039,66 +4636,66 @@ const ConfigInstrument3Page = {
   emits: ['toast'],
   template: `
   <div class="p-4 overflow-y-auto h-full">
-    <div class="inst-panel-container">
-      <h2 class="inst-panel-title">Selección de Fórmulas de Cálculo</h2>
+    <div class="prof-panel-container">
+      <h2 class="prof-panel-title">Configuración Avanzada de Fórmulas</h2>
       
-      <div class="inst-grid">
+      <div class="prof-grid">
         
         <!-- Formula Viscosidad -->
-        <div class="inst-card">
-          <div class="inst-card-title">
-            Formula Viscosidad Crudo (b_IHM_PB_miu)
-            <span class="inst-mode-badge" :class="formulas.b_IHM_PB_miu ? 'badge-teal' : 'badge-purple'">
-              {{ formulas.b_IHM_PB_miu ? 'Fórmula 2 (Calculada)' : 'Fórmula 1 (Medida)' }}
+        <div class="prof-card">
+          <div class="prof-card-header">
+            <div class="prof-card-title">Viscosidad del Crudo<br><span style="font-size: 11px; color: #9aa3af; font-family: 'Roboto Mono', monospace;">b_IHM_PB_miu</span></div>
+            <span class="prof-badge" :class="formulas.b_IHM_PB_miu ? 'prof-badge-secondary' : 'prof-badge-primary'">
+              {{ formulas.b_IHM_PB_miu ? 'Calculada' : 'Medida' }}
             </span>
           </div>
-          <div class="inst-card-buttons">
+          <div class="prof-btn-group">
             <button @click="toggleFormula('b_IHM_PB_miu', 0)" 
-                    :class="['retro-3d-btn', formulas.b_IHM_PB_miu ? 'inactive' : 'active-purple']">
+                    :class="['prof-btn', formulas.b_IHM_PB_miu ? 'inactive' : 'active active-primary']">
               Fórmula 1 (Medida)
             </button>
             <button @click="toggleFormula('b_IHM_PB_miu', 1)" 
-                    :class="['retro-3d-btn', !formulas.b_IHM_PB_miu ? 'inactive' : 'active-teal']">
+                    :class="['prof-btn', !formulas.b_IHM_PB_miu ? 'inactive' : 'active active-secondary']">
               Fórmula 2 (Calculada)
             </button>
           </div>
         </div>
 
         <!-- Formula Viscosidad Externa -->
-        <div class="inst-card">
-          <div class="inst-card-title">
-            Formula Viscosidad Externa (b_externa)
-            <span class="inst-mode-badge" :class="formulas.b_externa ? 'badge-teal' : 'badge-purple'">
-              {{ formulas.b_externa ? 'Fórmula 4 (Exponencial)' : 'Fórmula 3 (Polinómica)' }}
+        <div class="prof-card">
+          <div class="prof-card-header">
+            <div class="prof-card-title">Viscosidad Externa<br><span style="font-size: 11px; color: #9aa3af; font-family: 'Roboto Mono', monospace;">b_externa</span></div>
+            <span class="prof-badge" :class="formulas.b_externa ? 'prof-badge-secondary' : 'prof-badge-purple'">
+              {{ formulas.b_externa ? 'Exponencial' : 'Polinómica' }}
             </span>
           </div>
-          <div class="inst-card-buttons">
+          <div class="prof-btn-group">
             <button @click="toggleFormula('b_externa', 0)" 
-                    :class="['retro-3d-btn', formulas.b_externa ? 'inactive' : 'active-purple']">
+                    :class="['prof-btn', formulas.b_externa ? 'inactive' : 'active active-purple']">
               Fórmula 3 (Polinómica)
             </button>
             <button @click="toggleFormula('b_externa', 1)" 
-                    :class="['retro-3d-btn', !formulas.b_externa ? 'inactive' : 'active-teal']">
+                    :class="['prof-btn', !formulas.b_externa ? 'inactive' : 'active active-secondary']">
               Fórmula 4 (Exponencial)
             </button>
           </div>
         </div>
 
         <!-- Formula Reynolds / Transición -->
-        <div class="inst-card">
-          <div class="inst-card-title">
-            Fórmula Reynolds y Factor C (b_SEL_LAMINAR)
-            <span class="inst-mode-badge" :class="formulas.b_SEL_LAMINAR ? 'badge-teal' : 'badge-purple'">
-              {{ formulas.b_SEL_LAMINAR ? 'Fórmulas 7 y 8 (Manual)' : 'Fórmulas 5 y 6 (Auto)' }}
+        <div class="prof-card">
+          <div class="prof-card-header">
+            <div class="prof-card-title">Reynolds y Factor C<br><span style="font-size: 11px; color: #9aa3af; font-family: 'Roboto Mono', monospace;">b_SEL_LAMINAR</span></div>
+            <span class="prof-badge" :class="formulas.b_SEL_LAMINAR ? 'prof-badge-secondary' : 'prof-badge-primary'">
+              {{ formulas.b_SEL_LAMINAR ? 'Manual' : 'Automático' }}
             </span>
           </div>
-          <div class="inst-card-buttons">
+          <div class="prof-btn-group">
             <button @click="toggleFormula('b_SEL_LAMINAR', 0)" 
-                    :class="['retro-3d-btn', formulas.b_SEL_LAMINAR ? 'inactive' : 'active-purple']">
+                    :class="['prof-btn', formulas.b_SEL_LAMINAR ? 'inactive' : 'active active-primary']">
               Fórmulas 5 y 6 (Auto)
             </button>
             <button @click="toggleFormula('b_SEL_LAMINAR', 1)" 
-                    :class="['retro-3d-btn', !formulas.b_SEL_LAMINAR ? 'inactive' : 'active-teal']">
+                    :class="['prof-btn', !formulas.b_SEL_LAMINAR ? 'inactive' : 'active active-secondary']">
               Fórmulas 7 y 8 (Manual)
             </button>
           </div>
@@ -4106,9 +4703,7 @@ const ConfigInstrument3Page = {
 
       </div>
 
-      <div class="inst-panel-footer">
-        NOTA: La selección cambia la fórmula lógica utilizada por el SoftPLC en tiempo real.
-      </div>
+
     </div>
   </div>`,
   setup(props, { emit }) {
@@ -4142,6 +4737,7 @@ const ConfigInstrument3Page = {
 const app = createApp(App);
 app.component('proceso-page', ProcesoPage);
 app.component('inicio-prueba-page', InicioPruebaPage);
+app.component('historico-alarmas-page', HistoricoAlarmasPage);
 app.component('reportes-page', ReportesPage);
 app.component('data-cruda-page', DataCrudaPage);
 app.component('pid-modal', PidModal);

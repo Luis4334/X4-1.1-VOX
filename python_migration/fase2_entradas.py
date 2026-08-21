@@ -405,14 +405,15 @@ def p02_entradas():
         V.r_T_Oil_C = _hll_TIT.execute(_scl_TIT.r_Out, 0.0, 300.0)
 
     # Flujo Transmisor Gas (selector Vortex / Wedge / MV)
-    if V.b_Sw_Wedge_Gas:
-        gas_input = V.r_Local_4_I_Ch3Data
-    else:
-        gas_input = V.r_Local_2_I_Ch2Data
-    _scl_VORTEX_Q.execute(gas_input,
-                          V.r_SCL_VORTEX_Q_01_InRawMin, V.r_SCL_VORTEX_Q_01_InRawMax,
-                          V.r_SCL_VORTEX_Q_01_InEUMin, V.r_SCL_VORTEX_Q_01_InEUMax)
-    V.r_Transmisor_Gas = _hll_VORTEX_Q.execute(_scl_VORTEX_Q.r_Out, 0.0, 10000.0)
+    if not V.b_habilitar_F_HART and "r_Transmisor_Gas" not in V.instrument_overrides:
+        if V.b_Sw_Wedge_Gas:
+            gas_input = V.r_Local_4_I_Ch3Data
+        else:
+            gas_input = V.r_Local_2_I_Ch2Data
+        _scl_VORTEX_Q.execute(gas_input,
+                              V.r_SCL_VORTEX_Q_01_InRawMin, V.r_SCL_VORTEX_Q_01_InRawMax,
+                              V.r_SCL_VORTEX_Q_01_InEUMin, V.r_SCL_VORTEX_Q_01_InEUMax)
+        V.r_Transmisor_Gas = _hll_VORTEX_Q.execute(_scl_VORTEX_Q.r_Out, 0.0, 10000.0)
 
     # Presión de Gas (PT_01) — omitir si HART FIT-03 (Device 4) está activo
     # Cuando b_habilitar_F_HART es True y Device 4 está conectado, el valor

@@ -502,10 +502,6 @@ def f04h_volumen_diluente():
     # Rung 2: reset al terminar
     if not pep and not V.b_Parada_en_Progreso:
         V.r_Vol_dil_total_real = 0.0
-        V.r_Qb_Dil_Estimado = 0.0
-        V.r_Qb_Dil_Estimado_sc = 0.0
-        V.r_Q_Crudo_Neto_Estimado = 0.0
-        V.r_Q_Crudo_Neto_Estimado_sc = 0.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
