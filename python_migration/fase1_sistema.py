@@ -103,12 +103,14 @@ def save_retained_vars():
         'r_D_Wedge', 'r_K_wedge', 'r_T_Yac_C',
         'r_m', 'r_d_L', 'r_L', 'r_N_Tubos', 'r_AK_L', 'r_BK_L', 'r_CK_L',
         'r_D_wedge_gas', 'r_h_wedge_gas', 'r_k_mp',
+        'r_Rso_PT2', 'r_Bo2',
         # Switches
         'b_Sw_Wedge_Gas', 'b_Sw_Wedge_Gas_2', 'b_SW_DIL_MEDIDO_CALC',
         'b_SEL_LAMINAR', 'b_SEL_T_baja', 'b_habilitar_Loggers',
         'b_Control_PID_Gas', 'b_PID_POSIC_SW',
         'b_sw_AM_Laminar_Wedge_x', 'b_sw_AM_Laminar_Wedge_y',
         'b_sel_tipo_instrum_dil', 'b_AUTO_GAS_01', 'b_SEL_VLV_GAS_01',
+        'b_PB_PVT',
     ]
     data = {}
     for key in keys_to_retain:

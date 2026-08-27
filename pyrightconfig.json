@@ -1,0 +1,6 @@
+{
+  "extraPaths": [
+    "python_migration"
+  ],
+  "typeCheckingMode": "off"
+}

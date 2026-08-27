@@ -482,6 +482,20 @@ def f04h_volumen_diluente():
     """Migrado de F04H_CAU.LSF. Acumula caudal de diluente."""
     t7 = V.ad_TIEMPO_prueba[7]
     pep = V.b_Prueba_en_Progreso
+    inyeccion_on = (getattr(V, 'i_posicion_combo_box_2', 0) == 1) or (str(getattr(V, 'as_Codigo_pozo_18', '')).strip().upper() == 'SI')
+
+    if not inyeccion_on:
+        V.r_caudal_dil_BM = 0.0
+        V.r_Vol_Dil_Total = 0.0
+        V.r_Vol_dil_total_real = 0.0
+        V.r_Qb_Dil_Estimado = 0.0
+        V.r_Qb_Dil_Estimado_sc = 0.0
+        V.r_Q_Crudo_Neto_Estimado = V.r_Q_Crudo_Estimado
+        V.r_Q_Crudo_Neto_Estimado_sc = V.r_Q_Crudo_sc_Estimado
+        V.r_Vol_Crudo_Total_neto = V.r_Vol_Crudo_Total
+        V.r_Vol_Dil_Total_sc = 0.0
+        V.r_Vol_Crudo_Total_neto_sc = V.r_Vol_Crudo_Total_sc
+        return
 
     # Rung 0
     if pep and t7 > 0:
@@ -639,7 +653,10 @@ def p04_caudal():
         V.b_condicion_laminar = False
 
     # Rung 6: caudal diluente medido
-    if V.b_SW_DIL_MEDIDO_CALC:
+    inyeccion_on = (getattr(V, 'i_posicion_combo_box_2', 0) == 1) or (str(getattr(V, 'as_Codigo_pozo_18', '')).strip().upper() == 'SI')
+    if not inyeccion_on:
+        V.r_caudal_dil_BM = 0.0
+    elif V.b_SW_DIL_MEDIDO_CALC:
         V.r_caudal_dil_BM = V.r_Q_DIL_MEDIDO
 
     # Rungs 7-16: llamadas a subfunciones

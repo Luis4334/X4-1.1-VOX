@@ -30,85 +30,57 @@ DAQ_SLAVE_ID = 1        # ID esclavo Modbus
 RECONNECT_COOLDOWN = 5.0
 
 # Estado interno
-_daq_client: ModbusSerialClient | None = None
 _connected: bool = False
 _last_attempt: float = 0.0   # timestamp del último intento de connect()
 _last_error: str = ""         # mensaje del último error (expuesto a la UI)
 
+import modbus_pool
 
-def get_client() -> ModbusSerialClient | None:
+
+def get_client():
     """
-    Retorna el cliente Modbus activo.
+    Retorna el cliente Modbus activo desde el pool compartido.
     - Si ya está conectado, lo devuelve directamente.
     - Si está desconectado, solo intenta reconectar cuando el cooldown lo permite.
-    - Nunca lanza excepciones — retorna None si falla.
     """
-    global _daq_client, _connected, _last_attempt, _last_error
+    global _connected, _last_attempt, _last_error
 
-    if _connected and _daq_client is not None:
-        return _daq_client
+    # Obtener el cliente persistente del pool
+    client = modbus_pool.get_or_create_modbus_client(DAQ_PORT, DAQ_BAUDRATE, DAQ_PARITY, DAQ_STOPBITS)
+    
+    if client:
+        _connected = True
+        V.b_Error_DAQ = False
+        _last_error = ""
+        return client
 
+    # Si falló al obtener el cliente (ej. timeout o PermissionError al abrir COM)
     now = time.monotonic()
-    if (now - _last_attempt) < RECONNECT_COOLDOWN:
-        # Todavía en cooldown — no reintentar
-        return None
-
-    _last_attempt = now
-
-    try:
-        # Destruir cliente anterior si existe (libera el puerto COM)
-        if _daq_client is not None:
-            try:
-                _daq_client.close()
-            except Exception:
-                pass
-            _daq_client = None
-
-        _daq_client = ModbusSerialClient(
-            port=DAQ_PORT,
-            baudrate=DAQ_BAUDRATE,
-            bytesize=DAQ_BYTESIZE,
-            parity=DAQ_PARITY,
-            stopbits=DAQ_STOPBITS,
-            timeout=DAQ_TIMEOUT,
-        )
-
-        _connected = _daq_client.connect()
-
-        if _connected:
-            V.b_Error_DAQ = False
-            _last_error = ""
-            logger.info(f"✅ DAQ conectada en {DAQ_PORT} @ {DAQ_BAUDRATE} baud")
-        else:
-            V.b_Error_DAQ = True
-            _last_error = f"connect() retornó False en {DAQ_PORT}"
-            logger.warning(f"⚠️ No se pudo conectar DAQ en {DAQ_PORT}")
-
-    except Exception as e:
+    if (now - _last_attempt) >= RECONNECT_COOLDOWN:
+        _last_attempt = now
         _connected = False
         V.b_Error_DAQ = True
-        _last_error = str(e)
-        logger.error(f"Error conectando DAQ: {e}")
+        _last_error = f"No se pudo abrir puerto {DAQ_PORT}"
+        logger.warning(f"⚠️ No se pudo conectar DAQ en {DAQ_PORT}")
+        
+    return None
 
-    return _daq_client if _connected else None
+def get_lock():
+    """Retorna el lock de transacción para el puerto de la DAQ."""
+    return modbus_pool.get_port_lock(DAQ_PORT, DAQ_BAUDRATE, DAQ_PARITY, DAQ_STOPBITS)
 
 
 def mark_disconnected():
     """
     Llamar cuando se detecta un error de comunicación en un ciclo.
-    Cierra y destruye el cliente para liberar el puerto COM,
-    y resetea el cooldown para que el próximo intento ocurra
-    después del paríon configurado.
+    Invalida el cliente en el pool para forzar su reconexión en el próximo intento,
+    y resetea el cooldown.
     """
-    global _daq_client, _connected, _last_attempt
+    global _connected, _last_attempt
     _connected = False
     V.b_Error_DAQ = True
     _last_attempt = time.monotonic()  # inicia cooldown
-    # Cerrar y destruir para liberar el puerto COM físico
-    if _daq_client is not None:
-        try:
-            _daq_client.close()
-        except Exception:
-            pass
-        _daq_client = None
+    
+    modbus_pool.invalidate_modbus_client(DAQ_PORT, DAQ_BAUDRATE, DAQ_PARITY, DAQ_STOPBITS)
     logger.warning("🟠 DAQ desconectada — reintento en %.0f s", RECONNECT_COOLDOWN)
+

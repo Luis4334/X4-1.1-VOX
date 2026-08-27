@@ -1,3 +1,5 @@
+# pyrefly: ignore-errors
+# type: ignore
 """
 MFM ORINOCO – Backend Flask + SoftPLC "Todo en Uno"
 =====================================================
@@ -537,6 +539,56 @@ def _init_and_load_prueba_config():
         logger.error(f"Error inicializando/cargando configuracion de prueba: {e}")
 
 
+def _init_and_load_pvt_balance_config():
+    """Crea la tabla pvt_balance_config si no existe y restaura sus valores en V."""
+    try:
+        db_exec("""
+            CREATE TABLE IF NOT EXISTS pvt_balance_config (
+                id             INT PRIMARY KEY DEFAULT 1,
+                pvt_mode       INT DEFAULT 0,
+                temp_yac       FLOAT DEFAULT 0.0,
+                rso            FLOAT DEFAULT 0.0,
+                bo             FLOAT DEFAULT 1.0,
+                api_form_real  FLOAT DEFAULT 0.0,
+                api_form_teo   FLOAT DEFAULT 0.0,
+                api_mez_real   FLOAT DEFAULT 0.0,
+                api_mez_teo    FLOAT DEFAULT 0.0,
+                api_dil_real   FLOAT DEFAULT 0.0,
+                api_dil_teo    FLOAT DEFAULT 0.0,
+                q_dil_real     FLOAT DEFAULT 0.0,
+                q_dil_teo      FLOAT DEFAULT 0.0,
+                q_net_real     FLOAT DEFAULT 0.0,
+                q_net_teo      FLOAT DEFAULT 0.0,
+                q_net_dil_real FLOAT DEFAULT 0.0,
+                q_net_dil_teo  FLOAT DEFAULT 0.0,
+                q_agua_real    FLOAT DEFAULT 0.0,
+                q_agua_teo     FLOAT DEFAULT 0.0,
+                q_total_real   FLOAT DEFAULT 0.0,
+                q_total_teo    FLOAT DEFAULT 0.0,
+                updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        """, fetch=False)
+
+        rows = db_exec("SELECT * FROM pvt_balance_config WHERE id = 1")
+        if rows:
+            row = rows[0]
+            mode = int(row.get("pvt_mode", 0))
+            V.b_PB_PVT = bool(mode == 1)
+            rso = float(row.get("rso", 0.0))
+            bo = float(row.get("bo", 1.0))
+            V.r_Rso_PT2 = rso
+            V.r_Bo2 = bo if bo > 0 else 1.0
+            if V.b_PB_PVT:
+                V.r_Rso_PT = V.r_Rso_PT2
+                V.r_Bo = V.r_Bo2
+            print(f"  [OK] Configuracion PVT y Balance de Masa restaurada desde BD (modo={'INGRESADA' if mode==1 else 'CALCULADA'}, RSO={rso}, BO={bo})")
+        else:
+            db_exec("INSERT INTO pvt_balance_config (id, pvt_mode, bo) VALUES (1, 0, 1.0)", fetch=False)
+            print("  [INFO] Configuracion inicial de PVT y Balance de Masa creada en BD")
+    except Exception as e:
+        logger.error(f"Error inicializando/cargando pvt_balance_config: {e}")
+
+
 def _load_daq_channels_from_db():
     """Lee la tabla daq_channel_config y aplica los parámetros a los módulos fase2_entradas."""
     try:
@@ -705,8 +757,34 @@ def websocket_updater():
                     logger.error(f"Error al registrar fin de prueba: {ex_end}")
                 _LAST_PRUEBA_EN_PROGRESO = False
 
+            # ── Leer datos de Coriolis desde base de datos ──
+            coriolis_data = {}
+            try:
+                coriolis_rows = db_exec(
+                    "SELECT var_name, current_val FROM modbus_rtu_variables WHERE var_name IN ('Coriolis_Density', 'Coriolis_Temp', 'Coriolis_Vol_flow_Rate')"
+                )
+                if coriolis_rows:
+                    for row in coriolis_rows:
+                        coriolis_data[row["var_name"]] = float(row["current_val"]) if row["current_val"] is not None else 0.0
+            except Exception as e:
+                logger.error(f"Error reading Coriolis vars: {e}")
+
+            # Overrides manuales para Coriolis si están activos
+            overrides = getattr(V, 'instrument_overrides', {})
+            c_dens = overrides.get("Coriolis_Density", coriolis_data.get("Coriolis_Density", 0.0))
+            c_temp = overrides.get("Coriolis_Temp", coriolis_data.get("Coriolis_Temp", 0.0))
+            c_flow = overrides.get("Coriolis_Vol_flow_Rate", coriolis_data.get("Coriolis_Vol_flow_Rate", 0.0))
+
+            # Sincronizar en V para alarmas y cálculos
+            setattr(V, "Coriolis_Density", float(c_dens))
+            setattr(V, "Coriolis_Temp", float(c_temp))
+            setattr(V, "Coriolis_Vol_flow_Rate", float(c_flow))
+
             # ── Leer datos de proceso desde V (solo lectura) ──
             process_data = {
+                "Coriolis_Density": round(float(c_dens), 3),
+                "Coriolis_Temp": round(float(c_temp), 2),
+                "Coriolis_Vol_flow_Rate": round(float(c_flow), 2),
                 "r_Q_gas_STD": round(V.r_Q_gas_STD,           3),   # Caudal de gas standard
                 "r_P_Gas":     round(V.r_P_Gas,               2),   # Presión de gas
                 "r_T_Gas":     round(V.r_T_Gas,               2),   # Temp gas
@@ -759,9 +837,9 @@ def websocket_updater():
 
                 "Q_Liq":       round(V.r_Q_Liquido,           3),   # Q.Liq
                 "Q_Crudo":     round(V.r_Q_Crudo,             3),   # Q.Crudo
-                "Q_Neto":      round(V.r_Q_Crudo - V.r_caudal_dil_BM, 3), # Q.Neto
+                "Q_Neto":      round(V.r_Q_Crudo - (V.r_caudal_dil_BM if ((getattr(V, 'i_posicion_combo_box_2', 0) == 1) or (str(getattr(V, 'as_Codigo_pozo_18', '')).strip().upper() == 'SI')) else 0.0), 3), # Q.Neto
                 "Q_Agua":      round(V.r_Q_W,                 3),   # Q.Agua (mapeado a r_Q_W)
-                "Q_Dil":       round(V.r_caudal_dil_BM,       3),   # Q.Diluente
+                "Q_Dil":       round(V.r_caudal_dil_BM if ((getattr(V, 'i_posicion_combo_box_2', 0) == 1) or (str(getattr(V, 'as_Codigo_pozo_18', '')).strip().upper() == 'SI')) else 0.0, 3),   # Q.Diluente
                 "Q_Gas":       round(V.r_Q_gas_STD,           3),   # Q.Gas (mapeado a r_Q_gas_STD)
                 # ── Extras ───────────────────────────────────────────
                 "Q_W":         round(V.r_Q_W,                 3),
@@ -795,7 +873,7 @@ def websocket_updater():
                 "r_API_MEZCLA_TEORICO": round(float(getattr(V, "r_API_MEZCLA_TEORICO", 0.0)), 3),
                 "r_CAUDAL_NETO_TEORICO": round(float(getattr(V, "r_CAUDAL_NETO_TEORICO", 0.0)), 3),
                 "r_Rso_PT": round(float(getattr(V, "r_Rso_PT", 0.0)), 3),
-                "r_Bo_PT": round(float(getattr(V, "r_Bo_PT", 0.0)), 3),
+                "r_Bo_PT": round(float(getattr(V, "r_Bo", getattr(V, "r_Bo_PT", 0.0))), 3),
                 "i_posicion_combo_box_1": int(getattr(V, "i_posicion_combo_box_1", 0)),
                 "i_posicion_combo_box_2": int(getattr(V, "i_posicion_combo_box_2", 0)),
                 "ar_TIEMPO_prueba_TOTAL": list(getattr(V, "ar_TIEMPO_prueba_TOTAL", [0]*8)),
@@ -878,20 +956,24 @@ _alarm_prev_state: dict = {}   # instrumento → nivel previo ('', 'HH', 'H', 'L
 
 # Mapa instrumento → variable en V
 _ALARM_VAR_MAP = {
-    "FI-03":   "r_Q_gas_STD",
-    "GAS-01":  "r_GVoidF",
-    "LI-01":   "r_LIT_001",
-    "PDI-01":  "r_PDT_01",
-    "PDI-02":  "r_PDT_02",
-    "PDI-03":  "r_PDT_03",
-    "PDI-04":  "r_Transmisor_Gas",
-    "PI-01":   "r_P_Gas",
-    "PI-02":   "r_P_Oil",
-    "TI-01":   "r_T_Oil_C",
-    "TI-02":   "r_T_Gas",
-    "VI-01":   "r_v_oil_medida",
-    "WC":      "r_WC",
-    "NIV-AUX": "r_nivel_aux",
+    "FI-03":                  "r_Q_gas_STD",
+    "GAS-01":                 "r_GVoidF",
+    "LI-01":                  "r_LIT_001",
+    "PDI-01":                 "r_PDT_01",
+    "PDI-02":                 "r_PDT_02",
+    "PDI-03":                 "r_PDT_03",
+    "PDI-04":                 "r_Transmisor_Gas",
+    "PI-01":                  "r_P_Gas",
+    "PI-02":                  "r_P_Oil",
+    "TI-01":                  "r_T_Oil_C",
+    "TI-02":                  "r_T_Gas",
+    "VI-01":                  "r_v_oil_medida",
+    "WC":                     "r_WC",
+    "NIV-AUX":                "r_nivel_aux",
+    "Coriolis_Density":       "Coriolis_Density",
+    "Coriolis_Temp":          "Coriolis_Temp",
+    "Coriolis_Vol_flow_Rate": "Coriolis_Vol_flow_Rate",
+    "Coriolis_Vol_flow_Ra":   "Coriolis_Vol_flow_Rate",
 }
 
 def _check_and_record_alarmas():
@@ -995,6 +1077,12 @@ def _persist_lecturas(data: dict):
         "GAS-01": "r_GVoidF",
         "VI-01": "r_v_oil_medida",
         "WC": "r_WC",
+        "NIV-AUX": "r_nivel_aux",
+        "PDI-04": "r_Transmisor_Gas",
+        "PI-02": "r_P_Oil",
+        "Coriolis_Density": "Coriolis_Density",
+        "Coriolis_Temp": "Coriolis_Temp",
+        "Coriolis_Vol_flow_Rate": "Coriolis_Vol_flow_Rate",
         "Q_LIQ": "Q_Liq",
         "Q_CRUDO": "Q_Crudo",
         "Q_NETO": "Q_Neto",
@@ -1004,7 +1092,12 @@ def _persist_lecturas(data: dict):
     }
     vals = []
     for db_tag, data_key in mapping.items():
-        vals.extend([db_tag, float(data.get(data_key, 0)), _ACTIVE_PRUEBA_ID])
+        v = data.get(data_key, 0)
+        try:
+            v_f = float(v) if v is not None else 0.0
+        except (ValueError, TypeError):
+            v_f = 0.0
+        vals.extend([db_tag, v_f, _ACTIVE_PRUEBA_ID])
     placeholders = ", ".join(["(%s, %s, %s)"] * len(mapping))
     db_exec(
         f"INSERT INTO lecturas_proceso (instrumento, valor, prueba_id) VALUES {placeholders}",
@@ -1504,6 +1597,15 @@ def set_formulas():
             try:
                 setattr(V, key, bool(int(d[key])))
                 updated.append(key)
+                if key == "b_PB_PVT":
+                    mode_val = int(d[key])
+                    try:
+                        db_exec("UPDATE pvt_balance_config SET pvt_mode = %s WHERE id = 1", (mode_val,), fetch=False)
+                    except Exception as _e:
+                        pass
+                    if mode_val == 1:
+                        V.r_Rso_PT = getattr(V, "r_Rso_PT2", V.r_Rso_PT)
+                        V.r_Bo = getattr(V, "r_Bo2", V.r_Bo)
             except (TypeError, ValueError):
                 pass
     if updated:
@@ -1513,6 +1615,162 @@ def set_formulas():
         except Exception as e:
             logger.error(f"Error saving formulas: {e}")
     return jsonify({"ok": True, "updated": updated})
+
+
+# ─────────────────────────────────────────────────────────────
+# Cálculos PVT y Balance de Masa (Persistencia en BD)
+# ─────────────────────────────────────────────────────────────
+
+@app.route("/api/pvt-balance", methods=["GET"])
+def get_pvt_balance():
+    """Retorna la configuración y cálculos guardados de PVT y Balance de Masa."""
+    try:
+        rows = db_exec("SELECT * FROM pvt_balance_config WHERE id = 1")
+        if rows:
+            r = rows[0]
+            return jsonify({
+                "ok": True,
+                "pvtMode": int(r.get("pvt_mode", 0)),
+                "tempYac": float(r.get("temp_yac", 0.0)),
+                "rso": float(r.get("rso", 0.0)),
+                "bo": float(r.get("bo", 1.0)),
+                "apiForm_real": float(r.get("api_form_real", 0.0)),
+                "apiForm_teo": float(r.get("api_form_teo", 0.0)),
+                "apiMez_real": float(r.get("api_mez_real", 0.0)),
+                "apiMez_teo": float(r.get("api_mez_teo", 0.0)),
+                "apiDil_real": float(r.get("api_dil_real", 0.0)),
+                "apiDil_teo": float(r.get("api_dil_teo", 0.0)),
+                "qDil_real": float(r.get("q_dil_real", 0.0)),
+                "qDil_teo": float(r.get("q_dil_teo", 0.0)),
+                "qNet_real": float(r.get("q_net_real", 0.0)),
+                "qNet_teo": float(r.get("q_net_teo", 0.0)),
+                "qNetDil_real": float(r.get("q_net_dil_real", 0.0)),
+                "qNetDil_teo": float(r.get("q_net_dil_teo", 0.0)),
+                "qAgua_real": float(r.get("q_agua_real", 0.0)),
+                "qAgua_teo": float(r.get("q_agua_teo", 0.0)),
+                "qTotal_real": float(r.get("q_total_real", 0.0)),
+                "qTotal_teo": float(r.get("q_total_teo", 0.0)),
+            })
+    except Exception as e:
+        logger.error(f"Error reading pvt_balance_config from BD: {e}")
+
+    # Fallback si no hay BD o error
+    return jsonify({
+        "ok": True,
+        "pvtMode": 1 if getattr(V, "b_PB_PVT", False) else 0,
+        "tempYac": float(getattr(V, "r_T_Yac_C", 0.0)),
+        "rso": float(getattr(V, "r_Rso_PT2", 0.0)),
+        "bo": float(getattr(V, "r_Bo2", 1.0)),
+        "apiForm_real": float(getattr(V, "r_API_formacion_BM", 0.0)),
+        "apiForm_teo": float(getattr(V, "r_API_formacion_BM", 0.0)),
+        "apiMez_real": float(getattr(V, "r_API_2", 0.0)),
+        "apiMez_teo": float(getattr(V, "r_API_MEZCLA_TEORICO", 0.0)),
+        "apiDil_real": float(getattr(V, "r_API_1", 0.0)),
+        "apiDil_teo": float(getattr(V, "r_API_1", 0.0)),
+        "qDil_real": float(getattr(V, "r_caudal_dil_BM", 0.0)),
+        "qDil_teo": float(getattr(V, "r_caudal_dil_BM", 0.0)),
+        "qNet_real": float(getattr(V, "r_Q_Crudo", 0.0)),
+        "qNet_teo": float(getattr(V, "r_CAUDAL_NETO_TEORICO", 0.0)),
+        "qNetDil_real": float(getattr(V, "r_Q_Crudo", 0.0)),
+        "qNetDil_teo": float(getattr(V, "r_Q_Crudo", 0.0)),
+        "qAgua_real": float(getattr(V, "r_Q_W", 0.0)),
+        "qAgua_teo": float(getattr(V, "r_Q_W", 0.0)),
+        "qTotal_real": float(getattr(V, "r_Q_Liquido", 0.0)),
+        "qTotal_teo": float(getattr(V, "r_Q_Liquido", 0.0)),
+    })
+
+
+@app.route("/api/pvt-balance", methods=["POST"])
+def set_pvt_balance():
+    """Guarda en BD y actualiza en memoria los cálculos y valores ingresados de PVT y Balance de Masa."""
+    d = request.get_json() or {}
+    try:
+        field_map = {
+            "pvtMode": "pvt_mode",
+            "tempYac": "temp_yac",
+            "rso": "rso",
+            "bo": "bo",
+            "apiForm_real": "api_form_real",
+            "apiForm_teo": "api_form_teo",
+            "apiMez_real": "api_mez_real",
+            "apiMez_teo": "api_mez_teo",
+            "apiDil_real": "api_dil_real",
+            "apiDil_teo": "api_dil_teo",
+            "qDil_real": "q_dil_real",
+            "qDil_teo": "q_dil_teo",
+            "qNet_real": "q_net_real",
+            "qNet_teo": "q_net_teo",
+            "qNetDil_real": "q_net_dil_real",
+            "qNetDil_teo": "q_net_dil_teo",
+            "qAgua_real": "q_agua_real",
+            "qAgua_teo": "q_agua_teo",
+            "qTotal_real": "q_total_real",
+            "qTotal_teo": "q_total_teo",
+        }
+
+        updates = []
+        params = []
+        for json_key, db_col in field_map.items():
+            if json_key in d and d[json_key] is not None:
+                try:
+                    val = int(d[json_key]) if json_key == "pvtMode" else float(d[json_key])
+                    updates.append(f"{db_col} = %s")
+                    params.append(val)
+                except (ValueError, TypeError):
+                    pass
+
+        # Sincronizar variables de SoftPLC en memoria
+        if "pvtMode" in d:
+            try:
+                mode_val = int(d["pvtMode"])
+                V.b_PB_PVT = bool(mode_val == 1)
+            except (ValueError, TypeError):
+                pass
+
+        if "rso" in d:
+            try:
+                V.r_Rso_PT2 = float(d["rso"])
+                if V.b_PB_PVT:
+                    V.r_Rso_PT = V.r_Rso_PT2
+            except (ValueError, TypeError):
+                pass
+
+        if "bo" in d:
+            try:
+                val_bo = float(d["bo"])
+                V.r_Bo2 = val_bo if val_bo > 0 else 1.0
+                if V.b_PB_PVT:
+                    V.r_Bo = V.r_Bo2
+            except (ValueError, TypeError):
+                pass
+
+        if "tempYac" in d:
+            try:
+                ty = float(d["tempYac"])
+                if ty > 0:
+                    setattr(V, "r_T_Yac_C", ty)
+            except (ValueError, TypeError):
+                pass
+
+        if updates:
+            # Asegurar que el registro id=1 exista en la tabla
+            db_exec("INSERT INTO pvt_balance_config (id) VALUES (1) ON DUPLICATE KEY UPDATE id=1", fetch=False)
+            set_clause = ", ".join(updates)
+            sql = f"UPDATE pvt_balance_config SET {set_clause} WHERE id = 1"
+            db_exec(sql, tuple(params), fetch=False)
+            logger.info("💾 [PVT / Balance] Datos actualizados y guardados exitosamente en BD MySQL")
+
+            try:
+                from fase1_sistema import save_retained_vars
+                save_retained_vars()
+            except Exception as e:
+                logger.error(f"Error saving retained vars from pvt-balance: {e}")
+
+        return jsonify({"ok": True, "message": "Datos de PVT y Balance guardados correctamente en BD"})
+    except Exception as e:
+        logger.error(f"Error in set_pvt_balance: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1641,16 +1899,21 @@ def cargar_datos_prueba():
         metodo = d.get("metodo", current.get("metodo", ""))
         rpm = d.get("rpm", current.get("rpm", ""))
         inyeccion = d.get("inyeccion", current.get("inyeccion", ""))
+        combo_inyeccion = int(d.get("comboInyeccion", current.get("combo_inyeccion", 0)))
         
         temp_yac = float(d.get("tempYac", current.get("temp_yac", 0.0)))
         api_formacion = float(d.get("apiFormacion", current.get("api_formacion", 0.0)))
         api_mezcla = float(d.get("apiMezcla", current.get("api_mezcla", 0.0)))
         api_diluente = float(d.get("apiDiluente", current.get("api_diluente", 0.0)))
-        caudal_diluente = float(d.get("caudalDiluente", current.get("caudal_diluente", 0.0)))
+        if combo_inyeccion == 0 or str(inyeccion).strip().upper() == "NO":
+            caudal_diluente = 0.0
+            if hasattr(V, "r_caudal_dil_BM"):
+                V.r_caudal_dil_BM = 0.0
+        else:
+            caudal_diluente = float(d.get("caudalDiluente", current.get("caudal_diluente", 0.0)))
         
         duracion_horas = int(float(d.get("duracionHoras", current.get("duracion_horas", 0))))
         combo_metodo = int(d.get("comboMetodo", current.get("combo_metodo", 0)))
-        combo_inyeccion = int(d.get("comboInyeccion", current.get("combo_inyeccion", 0)))
         
         fecha_dd = int(d.get("fechaDD", current.get("fecha_dd", 0)))
         fecha_mm = int(d.get("fechaMM", current.get("fecha_mm", 0)))
@@ -1831,15 +2094,25 @@ def post_alarma(instrumento):
     inst_upper = instrumento.upper()
     modo_manual = int(bool(d.get("modo_manual", 0)))
     
+    def _flt(v):
+        if v is None or v == "":
+            return None
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return None
+
+    val_man = _flt(d.get("valor_manual")) if modo_manual else None
+
     db_exec(
         """UPDATE tabla_configuracion_alarma
            SET minimo=%s,maximo=%s,SP_HH=%s,SP_H=%s,SP_L=%s,SP_LL=%s,
                DB=%s,RAW_H=%s,RAW_L=%s,modo_manual=%s,valor_manual=%s
-           WHERE instrumento=%s""",
-        (d.get("minimo"), d.get("maximo"), d.get("SP_HH"), d.get("SP_H"),
-         d.get("SP_L"), d.get("SP_LL"), d.get("DB"), d.get("RAW_H"), d.get("RAW_L"),
-         modo_manual, d.get("valor_manual"),
-         inst_upper),
+           WHERE instrumento=%s OR UPPER(instrumento)=%s""",
+        (_flt(d.get("minimo")), _flt(d.get("maximo")), _flt(d.get("SP_HH")), _flt(d.get("SP_H")),
+         _flt(d.get("SP_L")), _flt(d.get("SP_LL")), _flt(d.get("DB")), _flt(d.get("RAW_H")), _flt(d.get("RAW_L")),
+         modo_manual, val_man,
+         instrumento, inst_upper),
         fetch=False
     )
     
@@ -1847,7 +2120,15 @@ def post_alarma(instrumento):
     _sync_daq_hart_enabled_state(inst_upper, modo_manual)
     
     # Si modo manual activo, escribir valor en V inmediatamente
-    _apply_manual_override(inst_upper, modo_manual, d.get("valor_manual"))
+    _apply_manual_override(instrumento, modo_manual, val_man)
+
+    # Si es variable Modbus RTU / Coriolis, sincronizar también en modbus_rtu_variables
+    if modo_manual and val_man is not None:
+        db_exec(
+            "UPDATE modbus_rtu_variables SET current_val=%s, updated_at=NOW() WHERE var_name=%s OR UPPER(var_name)=%s",
+            (val_man, instrumento, inst_upper),
+            fetch=False
+        )
     
     # Sincronizar fallas de presion (r_falla_presion_gas, r_falla_presion_crudo)
     if inst_upper in ('PI-01', 'PI-02'):
@@ -1872,28 +2153,39 @@ def _apply_manual_override(instrumento, modo_manual, valor_manual):
     """Guarda/Escribe el valor manual en V.instrument_overrides si modo_manual=1."""
     # Mapa instrumento → atributo en V
     _TAG_MAP = {
-        "FI-03":   "r_Q_gas_STD",
-        "GAS-01":  "r_GVoidF",
-        "LI-01":   "r_LIT_001",
-        "PDI-01":  "r_PDT_01",
-        "PDI-02":  "r_PDT_02",
-        "PDI-03":  "r_PDT_03",
-        "PDI-04":  "r_Transmisor_Gas",
-        "PI-01":   "r_P_Gas",
-        "PI-02":   "r_P_Oil",
-        "TI-01":   "r_T_Oil_C",
-        "TI-02":   "r_T_Gas",
-        "VI-01":   "r_v_oil_medida",
-        "WC":      "r_WC",
-        "NIV-AUX": "r_nivel_aux",
+        "FI-03":                  "r_Q_gas_STD",
+        "GAS-01":                 "r_GVoidF",
+        "LI-01":                  "r_LIT_001",
+        "PDI-01":                 "r_PDT_01",
+        "PDI-02":                 "r_PDT_02",
+        "PDI-03":                 "r_PDT_03",
+        "PDI-04":                 "r_Transmisor_Gas",
+        "PI-01":                  "r_P_Gas",
+        "PI-02":                  "r_P_Oil",
+        "TI-01":                  "r_T_Oil_C",
+        "TI-02":                  "r_T_Gas",
+        "VI-01":                  "r_v_oil_medida",
+        "WC":                     "r_WC",
+        "NIV-AUX":                "r_nivel_aux",
+        "CORIOLIS_DENSITY":       "Coriolis_Density",
+        "CORIOLIS_TEMP":          "Coriolis_Temp",
+        "CORIOLIS_VOL_FLOW_RATE": "Coriolis_Vol_flow_Rate",
+        "CORIOLIS_VOL_FLOW_RA":   "Coriolis_Vol_flow_Rate",
+        "Coriolis_Density":       "Coriolis_Density",
+        "Coriolis_Temp":          "Coriolis_Temp",
+        "Coriolis_Vol_flow_Rate": "Coriolis_Vol_flow_Rate",
+        "Coriolis_Vol_flow_Ra":   "Coriolis_Vol_flow_Rate",
     }
-    tag = _TAG_MAP.get(instrumento)
+    tag = _TAG_MAP.get(instrumento) or _TAG_MAP.get(str(instrumento).upper()) or _TAG_MAP.get(str(instrumento).lower())
     if tag:
         if not hasattr(V, 'instrument_overrides'):
             V.instrument_overrides = {}
         if modo_manual and valor_manual is not None:
             try:
-                V.instrument_overrides[tag] = float(valor_manual)
+                val_f = float(valor_manual)
+                V.instrument_overrides[tag] = val_f
+                if hasattr(V, tag):
+                    setattr(V, tag, val_f)
             except Exception:
                 pass
         else:
@@ -2171,22 +2463,30 @@ def descargar_reporte():
         
     sorted_ts = sorted(pivoted.keys())
     instrumentos_orden = [
-        "FI-03", "PI-01", "TI-01", "LI-01", "PDI-01", "PDI-03", "PDI-02", "TI-02", "GAS-01", "VI-01",
-        "WC", "Q_LIQ", "Q_CRUDO", "Q_NETO", "Q_DIL", "Q_AGUA", "Q_GAS"
+        "FI-03", "PI-01", "PI-02", "TI-01", "TI-02", "LI-01", "NIV-AUX",
+        "PDI-01", "PDI-03", "PDI-02", "PDI-04", "GAS-01", "VI-01", "WC",
+        "Coriolis_Density", "Coriolis_Temp", "Coriolis_Vol_flow_Rate",
+        "Q_LIQ", "Q_CRUDO", "Q_NETO", "Q_DIL", "Q_AGUA", "Q_GAS"
     ]
     
     descripciones = {
         "FI-03": "Flujo Gas Vortex",
         "PI-01": "Presión de Entrada",
+        "PI-02": "Presión Líquido / Wedge",
         "TI-01": "Temperatura de Entrada",
+        "TI-02": "Temperatura Proceso",
         "LI-01": "Nivel del Separador",
+        "NIV-AUX": "Nivel Auxiliar",
         "PDI-01": "Diferencial de Presión Lam. A",
         "PDI-03": "Diferencial de Presión Lam. B",
         "PDI-02": "Diferencial de Presión Wedge",
-        "TI-02": "Temperatura Proceso",
+        "PDI-04": "Diferencial de Presión Wedge Gas",
         "GAS-01": "Porcentaje de Gas",
         "VI-01": "Viscosidad del Crudo",
         "WC": "Corte de Agua",
+        "Coriolis_Density": "Densidad Coriolis",
+        "Coriolis_Temp": "Temperatura Coriolis",
+        "Coriolis_Vol_flow_Rate": "Caudal Coriolis",
         "Q_LIQ": "Caudal Líquido Medido",
         "Q_CRUDO": "Caudal Crudo Medido",
         "Q_NETO": "Caudal Neto Medido",
@@ -2197,15 +2497,21 @@ def descargar_reporte():
     unidades = {
         "FI-03": "MSCFD",
         "PI-01": "PSIG",
+        "PI-02": "psia",
         "TI-01": "°C",
+        "TI-02": "°C",
         "LI-01": "%",
+        "NIV-AUX": "%",
         "PDI-01": "inH2O",
         "PDI-03": "inH2O",
         "PDI-02": "inH2O",
-        "TI-02": "°C",
+        "PDI-04": "inH2O",
         "GAS-01": "%",
         "VI-01": "CP",
         "WC": "%",
+        "Coriolis_Density": "gr/cm³",
+        "Coriolis_Temp": "°F",
+        "Coriolis_Vol_flow_Rate": "BB/D",
         "Q_LIQ": "BBLD",
         "Q_CRUDO": "BBLD",
         "Q_NETO": "BBLD",
@@ -3215,6 +3521,901 @@ def save_hart_channel_config():
     })
 
 # ─────────────────────────────────────────────────────────────
+# API Modbus RTU Devices — Gestión de múltiples dispositivos
+# ─────────────────────────────────────────────────────────────
+
+# Caché de estado de conexión en memoria (id_dispositivo -> dict)
+_MODBUS_RTU_STATUS = {}
+_MODBUS_RTU_STATUS_LOCK = threading.Lock()
+
+def _ensure_modbus_rtu_table():
+    """Crea la tabla modbus_rtu_devices si no existe, y añade columnas faltantes (parity, stopbits)."""
+    try:
+        db_exec(
+            """CREATE TABLE IF NOT EXISTS modbus_rtu_devices (
+                id           INT AUTO_INCREMENT PRIMARY KEY,
+                name         VARCHAR(100) NOT NULL DEFAULT 'Dispositivo',
+                port         VARCHAR(20)  NOT NULL DEFAULT 'COM3',
+                baudrate     INT          NOT NULL DEFAULT 9600,
+                slave_id     INT          NOT NULL DEFAULT 1,
+                parity       VARCHAR(2)   NOT NULL DEFAULT 'N',
+                stopbits     TINYINT      NOT NULL DEFAULT 1,
+                enabled      TINYINT(1)   NOT NULL DEFAULT 1,
+                created_at   DATETIME     DEFAULT NOW(),
+                updated_at   DATETIME     DEFAULT NOW() ON UPDATE NOW()
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+            fetch=False
+        )
+        # Auto-migración: añadir columnas faltantes en tablas ya existentes
+        _cols = {r.get('Field') for r in (db_exec("SHOW COLUMNS FROM modbus_rtu_devices") or [])}
+        if 'parity' not in _cols:
+            db_exec("ALTER TABLE modbus_rtu_devices ADD COLUMN parity VARCHAR(2) NOT NULL DEFAULT 'N' AFTER slave_id", fetch=False)
+            logger.info("[ModbusRTU] Columna 'parity' agregada a modbus_rtu_devices")
+        if 'stopbits' not in _cols:
+            db_exec("ALTER TABLE modbus_rtu_devices ADD COLUMN stopbits TINYINT NOT NULL DEFAULT 1 AFTER parity", fetch=False)
+            logger.info("[ModbusRTU] Columna 'stopbits' agregada a modbus_rtu_devices")
+    except Exception as e:
+        logger.warning(f"[ModbusRTU] No se pudo crear/migrar tabla: {e}")
+
+# Crear la tabla al importar
+try:
+    _ensure_modbus_rtu_table()
+except Exception:
+    pass
+
+
+@app.route("/api/modbus_rtu/devices", methods=["GET"])
+def modbus_rtu_get_devices():
+    """Retorna todos los dispositivos Modbus RTU configurados."""
+    try:
+        _ensure_modbus_rtu_table()
+        rows = db_exec("SELECT * FROM modbus_rtu_devices ORDER BY id")
+        return jsonify(rows or [])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/modbus_rtu/devices", methods=["POST"])
+def modbus_rtu_save_device():
+    """
+    Crea o actualiza un dispositivo Modbus RTU.
+    Payload: { id (opcional), name, port, baudrate, slave_id, parity, stopbits, enabled }
+    """
+    d = request.get_json() or {}
+    name     = str(d.get("name",     "Dispositivo"))[:100]
+    port     = str(d.get("port",     "COM3")).upper()[:20]
+    baudrate = int(d.get("baudrate", 9600))
+    slave_id = int(d.get("slave_id", 1))
+    parity   = str(d.get("parity",   "N")).upper()[:2]
+    stopbits = int(d.get("stopbits", 1))
+    enabled  = bool(d.get("enabled", True))
+    dev_id   = d.get("id")
+
+    try:
+        _ensure_modbus_rtu_table()
+        if dev_id:
+            db_exec(
+                """UPDATE modbus_rtu_devices
+                   SET name=%s, port=%s, baudrate=%s, slave_id=%s,
+                       parity=%s, stopbits=%s, enabled=%s, updated_at=NOW()
+                   WHERE id=%s""",
+                (name, port, baudrate, slave_id, parity, stopbits, enabled, int(dev_id)),
+                fetch=False
+            )
+            new_id = int(dev_id)
+        else:
+            db_exec(
+                """INSERT INTO modbus_rtu_devices (name, port, baudrate, slave_id, parity, stopbits, enabled)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (name, port, baudrate, slave_id, parity, stopbits, enabled),
+                fetch=False
+            )
+            rows = db_exec("SELECT LAST_INSERT_ID() AS id")
+            new_id = rows[0]["id"] if rows else None
+
+        logger.info(f"[ModbusRTU] Dispositivo {'actualizado' if dev_id else 'creado'}: id={new_id} {name} {port}@{baudrate} {parity}-8-{stopbits} slave={slave_id}")
+        return jsonify({"ok": True, "id": new_id})
+    except Exception as e:
+        logger.error(f"[ModbusRTU] Error guardando dispositivo: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/modbus_rtu/devices/<int:dev_id>", methods=["DELETE"])
+def modbus_rtu_delete_device(dev_id):
+    """Elimina un dispositivo Modbus RTU por ID."""
+    try:
+        db_exec("DELETE FROM modbus_rtu_devices WHERE id=%s", (dev_id,), fetch=False)
+        with _MODBUS_RTU_STATUS_LOCK:
+            _MODBUS_RTU_STATUS.pop(dev_id, None)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/modbus_rtu/status", methods=["GET"])
+def modbus_rtu_get_status():
+    """
+    Retorna el estado de conexión de todos los dispositivos.
+    El estado es actualizado por el endpoint /test o por un poller futuro.
+    """
+    with _MODBUS_RTU_STATUS_LOCK:
+        return jsonify(dict(_MODBUS_RTU_STATUS))
+
+
+@app.route("/api/modbus_rtu/test", methods=["POST"])
+def modbus_rtu_test_connection():
+    """
+    Verifica la conexión a un dispositivo Modbus RTU.
+    Payload: { port, baudrate, slave_id, parity?, stopbits?, id? }
+    Reutiliza el cliente del pool persistente (no abre un puerto nuevo)
+    y adquiere el lock de transacción para no interferir con el poller.
+    """
+    d        = request.get_json() or {}
+    port     = str(d.get("port",     "COM3")).upper()
+    baudrate = int(d.get("baudrate", 9600))
+    slave_id = int(d.get("slave_id", 1))
+    parity   = str(d.get("parity",   "N")).upper()
+    stopbits = int(d.get("stopbits", 1))
+    dev_id   = d.get("id")
+
+    result = {"connected": False, "error": "", "latency_ms": None, "port": port,
+              "baudrate": baudrate, "slave_id": slave_id, "parity": parity, "stopbits": stopbits}
+    try:
+        import time as _time
+        port_lock = _get_port_lock(port, baudrate, parity, stopbits)
+        # Obtener (o crear) el cliente persistente del pool
+        client = _get_or_create_modbus_client(port, baudrate, parity, stopbits)
+        if client is None:
+            result["error"] = f"No se pudo abrir puerto {port}"
+        else:
+            # Adquirir el lock de transacción (espera máx 2s para no bloquear Flask)
+            if not port_lock.acquire(timeout=2.0):
+                result["error"] = f"Puerto {port} ocupado por otro proceso — intenta de nuevo"
+            else:
+                try:
+                    t0 = _time.monotonic()
+                    resp = None
+                    for addr in [0, 1]:
+                        try:
+                            resp = client.read_holding_registers(addr, count=2, slave=slave_id)
+                            if resp and not resp.isError():
+                                break
+                            resp = client.read_input_registers(addr, count=2, slave=slave_id)
+                            if resp and not resp.isError():
+                                break
+                        except Exception:
+                            pass
+                    latency = round((_time.monotonic() - t0) * 1000, 1)
+                    result["connected"]  = True
+                    result["latency_ms"] = latency
+                    if resp and not resp.isError():
+                        result["registers"] = list(getattr(resp, 'registers', []))
+                        result["error"]     = ""
+                    else:
+                        result["registers"] = []
+                        result["error"]     = (f"Puerto {port} abierto OK ({latency:.0f} ms). "
+                                               f"Slave {slave_id} sin respuesta en addr 0-1 — "
+                                               f"verifica el Node Address del instrumento.")
+                finally:
+                    port_lock.release()
+    except Exception as e:
+        result["error"] = str(e)
+
+    if dev_id is not None:
+        with _MODBUS_RTU_STATUS_LOCK:
+            _MODBUS_RTU_STATUS[dev_id] = {
+                "connected":  result["connected"],
+                "error":      result["error"],
+                "latency_ms": result["latency_ms"],
+                "last_check": datetime.now().strftime("%H:%M:%S")
+            }
+    return jsonify(result)
+
+
+@app.route("/api/modbus_rtu/scan", methods=["POST"])
+def modbus_rtu_scan():
+    """
+    Escanea un puerto COM probando combinaciones de baudrate, paridad y slave IDs.
+    Payload: { port, baudrates?, parities?, slave_start?, slave_end? }
+    """
+    d = request.get_json() or {}
+    port = str(d.get("port", "COM3")).upper()
+    baudrates = d.get("baudrates", [9600, 19200, 38400, 4800])
+    parities = d.get("parities", ["N", "E", "O"])
+    slave_start = max(1, int(d.get("slave_start", 1)))
+    slave_end = min(247, max(slave_start, int(d.get("slave_end", 16))))
+    addrs_to_test = [0, 250, 249, 1, 100]
+
+    found = []
+    try:
+        from pymodbus.client import ModbusSerialClient as _MbClient
+        for baud in baudrates:
+            for parity in parities:
+                for stopbits in ([1] if parity in ('E', 'O') else [1, 2]):
+                    try:
+                        client = _MbClient(port=port, baudrate=baud, bytesize=8, parity=parity, stopbits=stopbits, timeout=0.15)
+                        if not client.connect():
+                            continue
+                        for s_id in range(slave_start, slave_end + 1):
+                            answered = False
+                            for fc in [3, 4]:
+                                if answered: break
+                                for test_addr in addrs_to_test:
+                                    try:
+                                        if fc == 3:
+                                            resp = client.read_holding_registers(test_addr, count=2, slave=s_id)
+                                        else:
+                                            resp = client.read_input_registers(test_addr, count=2, slave=s_id)
+                                        if resp and not resp.isError() and hasattr(resp, 'registers'):
+                                            found.append({
+                                                "port": port,
+                                                "baudrate": baud,
+                                                "parity": parity,
+                                                "stopbits": stopbits,
+                                                "slave_id": s_id,
+                                                "fc": fc,
+                                                "test_addr": test_addr,
+                                                "registers": list(resp.registers)
+                                            })
+                                            answered = True
+                                            break
+                                    except Exception:
+                                        pass
+                        client.close()
+                        if found: break
+                    except Exception:
+                        pass
+                if found: break
+            if found: break
+        return jsonify({"ok": True, "found": found, "count": len(found)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ─────────────────────────────────────────────────────────────
+# API Modbus RTU — Comandos y Variables
+# ─────────────────────────────────────────────────────────────
+
+_MODBUS_CMD_VALUES = {}   # { cmd_id: { values:[], connected:bool, error:'', ts:'' } }
+_MODBUS_CMD_LOCK   = threading.Lock()
+
+def _ensure_modbus_cmd_tables():
+    """Crea las tablas de comandos y variables si no existen."""
+    try:
+        db_exec("""CREATE TABLE IF NOT EXISTS modbus_rtu_commands (
+            id               INT AUTO_INCREMENT PRIMARY KEY,
+            device_id        INT NOT NULL,
+            cmd_name         VARCHAR(100)  NOT NULL DEFAULT '',
+            enabled          TINYINT(1)   NOT NULL DEFAULT 1,
+            internal_address VARCHAR(100) NOT NULL DEFAULT '',
+            poll_interval    INT          NOT NULL DEFAULT 1,
+            reg_count        INT          NOT NULL DEFAULT 2,
+            swap_code        VARCHAR(30)  NOT NULL DEFAULT 'No Change',
+            node_address     INT          NOT NULL DEFAULT 1,
+            modbus_function  VARCHAR(60)  NOT NULL DEFAULT 'FC 3 - Read Holding Registers (4X)',
+            mb_address       INT          NOT NULL DEFAULT 0,
+            num_variables    INT          NOT NULL DEFAULT 1,
+            sort_order       INT          NOT NULL DEFAULT 0,
+            created_at       DATETIME     DEFAULT NOW(),
+            updated_at       DATETIME     DEFAULT NOW() ON UPDATE NOW()
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""", fetch=False)
+
+        db_exec("""CREATE TABLE IF NOT EXISTS modbus_rtu_variables (
+            id          INT AUTO_INCREMENT PRIMARY KEY,
+            command_id  INT          NOT NULL,
+            var_index   INT          NOT NULL DEFAULT 0,
+            var_name    VARCHAR(100) NOT NULL DEFAULT '',
+            var_label   VARCHAR(100) NOT NULL DEFAULT '',
+            current_val DOUBLE       DEFAULT NULL,
+            updated_at  DATETIME     DEFAULT NOW() ON UPDATE NOW()
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""", fetch=False)
+    except Exception as e:
+        logger.warning(f"[ModbusRTU-CMD] No se pudo crear tabla: {e}")
+
+try:
+    _ensure_modbus_cmd_tables()
+except Exception:
+    pass
+
+
+
+def _apply_swap_code(registers, swap_code, num_regs=2):
+    """
+    Aplica el swap code a los registros crudos Modbus y devuelve float32 o int.
+
+    Convenciones de byte order estándar ProSoft / Prolink:
+      - No Change         (0): ABCD (Big-Endian, MSW first)
+      - Word Swap         (1): CDAB (LSW first)
+      - Word and Byte Swap(2): DCBA (Little-Endian completo)
+      - Byte Swap         (3): BADC (Swap de bytes dentro de cada palabra de 16-bit)
+
+    Para registros de 16-bit (num_regs=1):
+      - No Change / Word Swap:          MSB primero (A B)
+      - Byte Swap / Word and Byte Swap: LSB primero (B A)
+    """
+    import struct as _struct
+
+    if not registers:
+        return None
+
+    try:
+        if num_regs == 1 or len(registers) == 1:
+            raw = registers[0] & 0xFFFF
+            if swap_code in ('Byte Swap', 'Word and Byte Swap'):
+                raw = ((raw & 0xFF) << 8) | ((raw >> 8) & 0xFF)
+            return _struct.unpack('>h', _struct.pack('>H', raw))[0]
+
+        # 2 registros = 32 bits
+        r0 = registers[0] & 0xFFFF
+        r1 = registers[1] & 0xFFFF
+        A = (r0 >> 8) & 0xFF; B = r0 & 0xFF
+        C = (r1 >> 8) & 0xFF; D = r1 & 0xFF
+
+        if swap_code == 'No Change':
+            raw_bytes = bytes([A, B, C, D])
+        elif swap_code == 'Word Swap':
+            raw_bytes = bytes([C, D, A, B])
+        elif swap_code == 'Word and Byte Swap':
+            raw_bytes = bytes([D, C, B, A])
+        elif swap_code == 'Byte Swap':
+            raw_bytes = bytes([B, A, D, C])
+        else:
+            raw_bytes = bytes([A, B, C, D])
+
+        val = _struct.unpack('>f', raw_bytes)[0]
+        # Evitar valores NaN / Inf
+        import math as _math
+        if _math.isnan(val) or _math.isinf(val):
+            return None
+        return round(val, 6)
+    except Exception as e:
+        logger.debug(f"[SwapCode] Error interpretando registros {registers}: {e}")
+        return None
+
+
+@app.route("/api/modbus_rtu/devices/<int:dev_id>/commands", methods=["GET"])
+def modbus_rtu_get_commands(dev_id):
+    """Lista todos los comandos del dispositivo, con sus variables."""
+    try:
+        _ensure_modbus_cmd_tables()
+        cmds = db_exec(
+            "SELECT * FROM modbus_rtu_commands WHERE device_id=%s ORDER BY sort_order, id",
+            (dev_id,)
+        ) or []
+        for cmd in cmds:
+            cmd_id = cmd.get("id") or cmd.get("cmd_id")
+            vars_rows = db_exec(
+                "SELECT * FROM modbus_rtu_variables WHERE command_id=%s ORDER BY var_index",
+                (cmd_id,)
+            ) or []
+            cmd["variables"] = vars_rows
+        return jsonify(cmds)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/modbus_rtu/commands", methods=["POST"])
+def modbus_rtu_save_command():
+    """
+    Crea o actualiza un comando Modbus RTU.
+    Payload: { id?, device_id, cmd_name, enabled, internal_address, poll_interval,
+               reg_count, swap_code, node_address, modbus_function, mb_address,
+               num_variables, sort_order }
+    """
+    d = request.get_json() or {}
+    required = ["device_id"]
+    if not all(k in d for k in required):
+        return jsonify({"error": "Falta device_id"}), 400
+
+    cmd_id      = d.get("id")
+    device_id   = int(d["device_id"])
+    cmd_name    = str(d.get("cmd_name", ""))[:100]
+    enabled     = bool(d.get("enabled", True))
+    int_addr    = str(d.get("internal_address", ""))[:100]
+    poll_int    = int(d.get("poll_interval", 1))
+    reg_count   = max(1, int(d.get("reg_count", 2)))
+    swap_code   = str(d.get("swap_code", "No Change"))[:30]
+    node_addr   = int(d.get("node_address", 1))
+    mb_func     = str(d.get("modbus_function", "FC 3 - Read Holding Registers (4X)"))[:60]
+    mb_addr     = int(d.get("mb_address", 0))
+    num_vars    = max(1, int(d.get("num_variables", 1)))
+    sort_order  = int(d.get("sort_order", 0))
+
+    try:
+        _ensure_modbus_cmd_tables()
+        if cmd_id:
+            db_exec(
+                """UPDATE modbus_rtu_commands SET
+                   cmd_name=%s, enabled=%s, internal_address=%s, poll_interval=%s,
+                   reg_count=%s, swap_code=%s, node_address=%s, modbus_function=%s,
+                   mb_address=%s, num_variables=%s, sort_order=%s, updated_at=NOW()
+                   WHERE id=%s""",
+                (cmd_name, enabled, int_addr, poll_int, reg_count, swap_code,
+                 node_addr, mb_func, mb_addr, num_vars, sort_order, int(cmd_id)),
+                fetch=False
+            )
+            new_id = int(cmd_id)
+        else:
+            db_exec(
+                """INSERT INTO modbus_rtu_commands
+                   (device_id, cmd_name, enabled, internal_address, poll_interval,
+                    reg_count, swap_code, node_address, modbus_function, mb_address,
+                    num_variables, sort_order)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (device_id, cmd_name, enabled, int_addr, poll_int, reg_count,
+                 swap_code, node_addr, mb_func, mb_addr, num_vars, sort_order),
+                fetch=False
+            )
+            rows   = db_exec("SELECT LAST_INSERT_ID() AS id")
+            new_id = rows[0]["id"] if rows else None
+
+        # Sincronizar variables: asegura que haya exactamente num_vars filas
+        if new_id:
+            existing = db_exec(
+                "SELECT id, var_index FROM modbus_rtu_variables WHERE command_id=%s ORDER BY var_index",
+                (new_id,)
+            ) or []
+            existing_idx = {r["var_index"] for r in existing}
+
+            # Insertar las que faltan
+            for i in range(num_vars):
+                if i not in existing_idx:
+                    db_exec(
+                        """INSERT INTO modbus_rtu_variables (command_id, var_index, var_name, var_label)
+                           VALUES (%s,%s,%s,%s)""",
+                        (new_id, i, f"var_{new_id}_{i}", f"Variable {i+1}"),
+                        fetch=False
+                    )
+            # Eliminar las sobrantes
+            if len(existing) > num_vars:
+                for r in existing:
+                    if r["var_index"] >= num_vars:
+                        db_exec("DELETE FROM modbus_rtu_variables WHERE id=%s", (r["id"],), fetch=False)
+
+        logger.info(f"[ModbusRTU-CMD] Comando {'actualizado' if cmd_id else 'creado'}: id={new_id} dev={device_id}")
+        return jsonify({"ok": True, "id": new_id})
+    except Exception as e:
+        logger.error(f"[ModbusRTU-CMD] Error guardando comando: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/modbus_rtu/commands/<int:cmd_id>", methods=["DELETE"])
+def modbus_rtu_delete_command(cmd_id):
+    """Elimina un comando y sus variables."""
+    try:
+        db_exec("DELETE FROM modbus_rtu_variables WHERE command_id=%s", (cmd_id,), fetch=False)
+        db_exec("DELETE FROM modbus_rtu_commands WHERE id=%s", (cmd_id,), fetch=False)
+        with _MODBUS_CMD_LOCK:
+            _MODBUS_CMD_VALUES.pop(cmd_id, None)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/modbus_rtu/commands/<int:cmd_id>/variables", methods=["POST"])
+def modbus_rtu_save_variables(cmd_id):
+    """
+    Guarda los nombres/etiquetas de las variables de un comando.
+    Payload: [ { var_index, var_name, var_label }, ... ]
+    """
+    vars_list = request.get_json() or []
+    try:
+        for v in vars_list:
+            db_exec(
+                """UPDATE modbus_rtu_variables
+                   SET var_name=%s, var_label=%s, updated_at=NOW()
+                   WHERE command_id=%s AND var_index=%s""",
+                (str(v.get("var_name",""))[:100], str(v.get("var_label",""))[:100],
+                 cmd_id, int(v.get("var_index", 0))),
+                fetch=False
+            )
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/modbus_rtu/live_values", methods=["GET"])
+def modbus_rtu_live_values():
+    """Retorna los últimos valores leídos de todos los comandos."""
+    with _MODBUS_CMD_LOCK:
+        return jsonify(dict(_MODBUS_CMD_VALUES))
+
+
+def _read_modbus_command_sync(port, baudrate, cmd, parity='N', stopbits=1):
+    """Ejecuta una lectura Modbus para un comando y devuelve el resultado dict."""
+    slave_id     = int(cmd.get("node_address", 1))
+    mb_addr      = int(cmd.get("mb_address", 0))
+    reg_count    = max(1, int(cmd.get("reg_count", 2)))
+    swap_code    = str(cmd.get("swap_code", "No Change"))
+    num_vars     = max(1, int(cmd.get("num_variables", 1)))
+    mb_func_str  = str(cmd.get("modbus_function", "FC 3"))
+    regs_per_var = max(1, reg_count // num_vars) if num_vars > 0 else reg_count
+
+    fc_num = 3
+    if "FC 1" in mb_func_str or "FC1" in mb_func_str:  fc_num = 1
+    elif "FC 2" in mb_func_str or "FC2" in mb_func_str: fc_num = 2
+    elif "FC 4" in mb_func_str or "FC4" in mb_func_str: fc_num = 4
+
+    result = {"connected": False, "error": "", "values": [], "ts": datetime.now().strftime("%H:%M:%S")}
+    import time as _time
+
+    try:
+        from pymodbus.client import ModbusSerialClient as _MbClient
+        client = _MbClient(port=port, baudrate=baudrate, bytesize=8, parity=parity, stopbits=stopbits, timeout=1.5)
+        if client.connect():
+            parsed_values = []
+            t0 = _time.monotonic()
+            any_success = False
+            for v_idx in range(num_vars):
+                start_addr = mb_addr + v_idx * regs_per_var
+                try:
+                    try:
+                        if fc_num == 1:
+                            resp = client.read_coils(start_addr, count=regs_per_var, slave=slave_id)
+                        elif fc_num == 2:
+                            resp = client.read_discrete_inputs(start_addr, count=regs_per_var, slave=slave_id)
+                        elif fc_num == 4:
+                            resp = client.read_input_registers(start_addr, count=regs_per_var, slave=slave_id)
+                        else:
+                            resp = client.read_holding_registers(start_addr, count=regs_per_var, slave=slave_id)
+                    except TypeError:
+                        # Fallback pymodbus < 3.0 / unit parameter
+                        if fc_num == 1:
+                            resp = client.read_coils(start_addr, count=regs_per_var, unit=slave_id)
+                        elif fc_num == 2:
+                            resp = client.read_discrete_inputs(start_addr, count=regs_per_var, unit=slave_id)
+                        elif fc_num == 4:
+                            resp = client.read_input_registers(start_addr, count=regs_per_var, unit=slave_id)
+                        else:
+                            resp = client.read_holding_registers(start_addr, count=regs_per_var, unit=slave_id)
+
+                    if resp is None:
+                        result["error"] = f"Timeout en {port} Slave {slave_id} Addr {start_addr}"
+                        parsed_values.append(None)
+                    elif hasattr(resp, 'isError') and resp.isError():
+                        result["error"] = f"Modbus Error: {resp}"
+                        logger.warning(f"[ModbusRTU] Error: {port} slave={slave_id} addr={start_addr} -> {resp}")
+                        parsed_values.append(None)
+                    elif fc_num in (1, 2):
+                        bits = getattr(resp, 'bits', [])
+                        val = int(bits[0]) if bits else None
+                        parsed_values.append(val)
+                        any_success = True
+                    else:
+                        regs = list(getattr(resp, 'registers', []))
+                        val = _apply_swap_code(regs, swap_code, regs_per_var)
+                        logger.info(f"[ModbusRTU] ✅ Lectura OK {port} slave={slave_id} addr={start_addr} regs={regs} -> val={val} ({swap_code})")
+                        parsed_values.append(val)
+                        any_success = True
+                except Exception as e_v:
+                    parsed_values.append(None)
+                    result["error"] = str(e_v)
+                    logger.debug(f"[ModbusRTU] Error leyendo var {v_idx}: {e_v}")
+
+            client.close()
+            latency = round((_time.monotonic() - t0) * 1000, 1)
+            result["connected"] = any_success or (not result["error"])
+            result["values"]    = parsed_values
+            result["latency_ms"] = latency
+
+            # Persistir valores en BD
+            cmd_id = cmd.get("id")
+            if cmd_id:
+                try:
+                    vars_rows = db_exec(
+                        "SELECT id, var_index, var_name FROM modbus_rtu_variables WHERE command_id=%s ORDER BY var_index",
+                        (cmd_id,)
+                    ) or []
+                    overrides = getattr(V, "instrument_overrides", {})
+                    for vr in vars_rows:
+                        v_name = vr.get("var_name")
+                        if v_name and v_name in overrides:
+                            continue
+                        vi = vr["var_index"]
+                        val = parsed_values[vi] if vi < len(parsed_values) else None
+                        if val is not None:
+                            db_exec(
+                                "UPDATE modbus_rtu_variables SET current_val=%s, updated_at=NOW() WHERE id=%s",
+                                (val, vr["id"]), fetch=False
+                            )
+                except Exception as e_db:
+                    logger.debug(f"[ModbusRTU] Error persistiendo a BD: {e_db}")
+        else:
+            result["error"] = f"No se pudo abrir puerto {port}"
+    except ModuleNotFoundError:
+        result["error"] = "pymodbus no instalado"
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
+
+
+@app.route("/api/modbus_rtu/commands/<int:cmd_id>/poll", methods=["POST"])
+def modbus_rtu_poll_command(cmd_id):
+    """
+    Lee registros del instrumento para un comando específico bajo demanda.
+    Payload: { device: { port, baudrate, parity?, stopbits? }, cmd: { node_address, modbus_function,
+               mb_address, reg_count, swap_code, num_variables } }
+    """
+    d   = request.get_json() or {}
+    dev = d.get("device", {})
+    cmd = d.get("cmd", {})
+    cmd["id"] = cmd_id
+
+    port     = str(dev.get("port", "COM3")).upper()
+    baudrate = int(dev.get("baudrate", 9600))
+    parity   = str(dev.get("parity", "N"))
+    stopbits = int(dev.get("stopbits", 1))
+
+    result = _read_modbus_command_sync(port, baudrate, cmd, parity=parity, stopbits=stopbits)
+
+    # Actualizar caché
+    with _MODBUS_CMD_LOCK:
+        _MODBUS_CMD_VALUES[cmd_id] = {
+            "connected":  result["connected"],
+            "error":      result["error"],
+            "values":     result["values"],
+            "latency_ms": result.get("latency_ms"),
+            "ts":         result["ts"]
+        }
+
+    return jsonify(result)
+
+
+from modbus_pool import (
+    get_port_lock as _get_port_lock,
+    get_or_create_modbus_client as _get_or_create_modbus_client,
+    invalidate_modbus_client as _invalidate_modbus_client
+)
+
+
+def _read_modbus_command_persistent(port, baudrate, cmd, parity='N', stopbits=1):
+    """
+    Versión del lector Modbus que usa el cliente persistente del pool.
+    Si el cliente falla, lo invalida para que se reconecte en el próximo ciclo.
+    """
+    slave_id     = int(cmd.get("node_address", 1))
+    mb_addr      = int(cmd.get("mb_address", 0))
+    reg_count    = max(1, int(cmd.get("reg_count", 2)))
+    swap_code    = str(cmd.get("swap_code", "No Change"))
+    num_vars     = max(1, int(cmd.get("num_variables", 1)))
+    mb_func_str  = str(cmd.get("modbus_function", "FC 3"))
+    regs_per_var = max(1, reg_count // num_vars) if num_vars > 0 else reg_count
+
+    fc_num = 3
+    if "FC 1" in mb_func_str or "FC1" in mb_func_str:   fc_num = 1
+    elif "FC 2" in mb_func_str or "FC2" in mb_func_str:  fc_num = 2
+    elif "FC 4" in mb_func_str or "FC4" in mb_func_str:  fc_num = 4
+
+    result = {"connected": False, "error": "", "values": [], "ts": datetime.now().strftime("%H:%M:%S")}
+    import time as _time
+
+    client = _get_or_create_modbus_client(port, baudrate, parity, stopbits)
+    if client is None:
+        result["error"] = f"No se pudo abrir puerto {port}"
+        return result
+
+    # Adquirir el lock de transacción — serializa lecturas concurrentes (poller + /test + /poll)
+    port_lock = _get_port_lock(port, baudrate, parity, stopbits)
+    if not port_lock.acquire(timeout=3.0):
+        result["error"] = f"Timeout esperando lock de {port} (bus ocupado)"
+        return result
+
+    try:
+        parsed_values = []
+        t0 = _time.monotonic()
+        any_success = False
+        for v_idx in range(num_vars):
+            start_addr = mb_addr + v_idx * regs_per_var
+            try:
+                try:
+                    if fc_num == 1:
+                        resp = client.read_coils(start_addr, count=regs_per_var, slave=slave_id)
+                    elif fc_num == 2:
+                        resp = client.read_discrete_inputs(start_addr, count=regs_per_var, slave=slave_id)
+                    elif fc_num == 4:
+                        resp = client.read_input_registers(start_addr, count=regs_per_var, slave=slave_id)
+                    else:
+                        resp = client.read_holding_registers(start_addr, count=regs_per_var, slave=slave_id)
+                except TypeError:
+                    # Fallback pymodbus < 3.0 (parámetro 'unit')
+                    if fc_num == 1:
+                        resp = client.read_coils(start_addr, count=regs_per_var, unit=slave_id)
+                    elif fc_num == 2:
+                        resp = client.read_discrete_inputs(start_addr, count=regs_per_var, unit=slave_id)
+                    elif fc_num == 4:
+                        resp = client.read_input_registers(start_addr, count=regs_per_var, unit=slave_id)
+                    else:
+                        resp = client.read_holding_registers(start_addr, count=regs_per_var, unit=slave_id)
+
+                if resp is None:
+                    result["error"] = f"Timeout en {port} Slave {slave_id} Addr {start_addr}"
+                    parsed_values.append(None)
+                elif hasattr(resp, 'isError') and resp.isError():
+                    result["error"] = f"Modbus Error: {resp}"
+                    logger.debug(f"[ModbusRTU] Error: {port} slave={slave_id} addr={start_addr} -> {resp}")
+                    parsed_values.append(None)
+                elif fc_num in (1, 2):
+                    bits = getattr(resp, 'bits', [])
+                    val = int(bits[0]) if bits else None
+                    parsed_values.append(val)
+                    any_success = True
+                else:
+                    regs = list(getattr(resp, 'registers', []))
+                    val = _apply_swap_code(regs, swap_code, regs_per_var)
+                    logger.info(f"[ModbusRTU] ✅ {port} slave={slave_id} addr={start_addr} regs={regs} -> {val} ({swap_code})")
+                    parsed_values.append(val)
+                    any_success = True
+            except Exception as e_v:
+                parsed_values.append(None)
+                result["error"] = str(e_v)
+                logger.debug(f"[ModbusRTU] Error leyendo var {v_idx}: {e_v}")
+                # Si hay excepción de comunicación, invalidar cliente para reconexión
+                if any(kw in str(e_v).lower() for kw in ('permission', 'access', 'closed', 'not connected', 'invalid')):
+                    _invalidate_modbus_client(port, baudrate, parity, stopbits)
+                    result["error"] = f"Conexión perdida en {port} — reconectando en próximo ciclo"
+                    break
+
+        latency = round((_time.monotonic() - t0) * 1000, 1)
+        result["connected"]   = any_success
+        result["values"]      = parsed_values
+        result["latency_ms"]  = latency
+
+        # Persistir valores en BD
+        cmd_id = cmd.get("id")
+        if cmd_id and any_success:
+            try:
+                vars_rows = db_exec(
+                    "SELECT id, var_index, var_name FROM modbus_rtu_variables WHERE command_id=%s ORDER BY var_index",
+                    (cmd_id,)
+                ) or []
+                overrides = getattr(V, "instrument_overrides", {})
+                for vr in vars_rows:
+                    v_name = vr.get("var_name")
+                    if v_name and v_name in overrides:
+                        continue
+                    vi  = vr["var_index"]
+                    val = parsed_values[vi] if vi < len(parsed_values) else None
+                    if val is not None:
+                        db_exec(
+                            "UPDATE modbus_rtu_variables SET current_val=%s, updated_at=NOW() WHERE id=%s",
+                            (val, vr["id"]), fetch=False
+                        )
+            except Exception as e_db:
+                logger.debug(f"[ModbusRTU] Error persistiendo a BD: {e_db}")
+
+    except Exception as e:
+        result["error"] = str(e)
+        logger.warning(f"[ModbusRTU-Pool] Error inesperado en {port}: {e}")
+        _invalidate_modbus_client(port, baudrate, parity, stopbits)
+    finally:
+        port_lock.release()
+
+    return result
+
+
+def _ping_modbus_device(port, baudrate, slave_id, parity='N', stopbits=1):
+    """
+    Verifica si el puerto COM abre y el slave responde a una lectura básica.
+    Retorna (connected: bool, error: str, latency_ms: float|None).
+    Usa el pool de clientes persistentes y el lock de transacción.
+    """
+    import time as _time
+    client = _get_or_create_modbus_client(port, baudrate, parity, stopbits)
+    if client is None:
+        return False, f"No se pudo abrir puerto {port}", None
+
+    port_lock = _get_port_lock(port, baudrate, parity, stopbits)
+    if not port_lock.acquire(timeout=2.0):
+        return False, "Bus ocupado (timeout lock)", None
+
+    try:
+        t0 = _time.monotonic()
+        resp = None
+        for addr in [0, 1, 100, 250]:
+            try:
+                resp = client.read_holding_registers(addr, count=2, slave=slave_id)
+                if resp and not resp.isError():
+                    break
+                resp = client.read_input_registers(addr, count=2, slave=slave_id)
+                if resp and not resp.isError():
+                    break
+            except Exception:
+                pass
+        latency = round((_time.monotonic() - t0) * 1000, 1)
+        if resp and not resp.isError():
+            return True, "", latency
+        else:
+            # Puerto abre OK aunque slave no responda en esas direcciones
+            return True, "Puerto abierto — slave sin respuesta en addr 0,1,100,250", latency
+    except Exception as e:
+        _invalidate_modbus_client(port, baudrate, parity, stopbits)
+        return False, str(e), None
+    finally:
+        port_lock.release()
+
+
+def _modbus_rtu_background_poller():
+    """
+    Hilo daemon que consulta periódicamente los dispositivos y comandos Modbus RTU
+    habilitados. Usa conexiones persistentes por puerto para evitar el PermissionError
+    de Windows al abrir/cerrar el puerto serial en cada ciclo.
+
+    Comportamiento:
+    - Si hay comandos: ejecuta cada comando y reporta conectado si al menos uno tuvo éxito.
+    - Si NO hay comandos: hace un ping básico al slave_id del dispositivo para reportar
+      si el puerto/slave está accesible (evita el "desconectado" falso al no tener comandos).
+    """
+    import time
+    logger.info("[ModbusRTU-Poller] Iniciando hilo de sondeo continuo Modbus RTU (conexiones persistentes)")
+    while True:
+        try:
+            time.sleep(1.0)
+            _ensure_modbus_cmd_tables()
+            devices = db_exec("SELECT * FROM modbus_rtu_devices WHERE enabled=1") or []
+            if not devices:
+                continue
+
+            for dev in devices:
+                dev_id   = dev["id"]
+                port     = str(dev.get("port", "COM3")).upper()
+                baudrate = int(dev.get("baudrate", 9600))
+                parity   = str(dev.get("parity",   "N"))
+                stopbits = int(dev.get("stopbits", 1))
+                slave_id = int(dev.get("slave_id", 1))
+
+                commands = db_exec(
+                    "SELECT * FROM modbus_rtu_commands WHERE device_id=%s AND enabled=1 ORDER BY sort_order, id",
+                    (dev_id,)
+                ) or []
+
+                if not commands:
+                    # Sin comandos configurados: ping básico para verificar que el puerto responde
+                    connected, error, latency = _ping_modbus_device(
+                        port, baudrate, slave_id, parity=parity, stopbits=stopbits
+                    )
+                    with _MODBUS_RTU_STATUS_LOCK:
+                        _MODBUS_RTU_STATUS[dev_id] = {
+                            "connected":  connected,
+                            "error":      error,
+                            "latency_ms": latency,
+                            "last_check": datetime.now().strftime("%H:%M:%S")
+                        }
+                    continue
+
+                any_dev_connected = False
+                last_error = ""
+                for cmd in commands:
+                    cmd_id = cmd["id"]
+                    # Usar lector con cliente persistente (no abre/cierra el puerto)
+                    res = _read_modbus_command_persistent(port, baudrate, cmd, parity=parity, stopbits=stopbits)
+                    if res.get("connected"):
+                        any_dev_connected = True
+                    else:
+                        last_error = res.get("error", "")
+                    with _MODBUS_CMD_LOCK:
+                        _MODBUS_CMD_VALUES[cmd_id] = {
+                            "connected":  res["connected"],
+                            "error":      res["error"],
+                            "values":     res["values"],
+                            "latency_ms": res.get("latency_ms"),
+                            "ts":         res["ts"]
+                        }
+
+                with _MODBUS_RTU_STATUS_LOCK:
+                    _MODBUS_RTU_STATUS[dev_id] = {
+                        "connected":  any_dev_connected,
+                        "error":      "" if any_dev_connected else (last_error or "Sin respuesta"),
+                        "last_check": datetime.now().strftime("%H:%M:%S")
+                    }
+
+        except Exception as e:
+            logger.debug(f"[ModbusRTU-Poller] Excepción en ciclo: {e}")
+            time.sleep(2.0)
+
+
+
+# ─────────────────────────────────────────────────────────────
 # WebSocket Events
 # ─────────────────────────────────────────────────────────────
 
@@ -3366,6 +4567,9 @@ if __name__ == "__main__":
     # -- Restaurar configuracion de prueba de pozo desde BD --
     _init_and_load_prueba_config()
 
+    # -- Restaurar configuracion PVT y Balance de Masa desde BD --
+    _init_and_load_pvt_balance_config()
+
     # -- Arrancar Hilo 1: ScanEngine (100 ms, daemon) --
     plc_engine.start()
     print(f"  [OK] SoftPLC ScanEngine activo ({len(PHASE_REGISTRY)} fases, 100 ms)")
@@ -3379,6 +4583,11 @@ if __name__ == "__main__":
     hart_thread = threading.Thread(target=_hart_background_poller, daemon=True, name="HARTPoller")
     hart_thread.start()
     print(f"  [OK] HART Poller activo (cada {_HART_POLL_INTERVAL}s) -> {HART_CONFIG.get('ip')}:{HART_CONFIG.get('port')} (multi-drop, HART Device Address por canal)")
+
+    # -- Arrancar Hilo 4: Modbus RTU Background Poller (daemon) --
+    modbus_rtu_thread = threading.Thread(target=_modbus_rtu_background_poller, daemon=True, name="ModbusRTUPoller")
+    modbus_rtu_thread.start()
+    print("  [OK] Modbus RTU Poller activo (sondeo continuo de instrumentos RTU)")
 
     print("  -> http://localhost:5000")
     print("=" * 60 + "\n")

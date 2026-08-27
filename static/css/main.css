@@ -541,7 +541,7 @@ html, body {
   z-index: 10;
 }
 .top-row { left: 28%; top: 22% ; }
-.bot-row { left: 22%; top: 68%; }
+.bot-row { left: 22%; top: 58%; }
 
 /* ── Tag individual ── */
 .pid-tag {
@@ -1178,6 +1178,7 @@ html, body {
   margin-bottom: 32px;
   background: linear-gradient(135deg, #79c0ff, #4a90a4, #e8eaed);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: 0.5px;
 }

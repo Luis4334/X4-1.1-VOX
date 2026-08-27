@@ -105,6 +105,12 @@ def _leer_daq_hardware():
         ]
         return  # V.b_Error_DAQ ya fue puesto en True por get_client()/mark_disconnected()
 
+    from modbus_daq import get_lock
+    port_lock = get_lock()
+    # Espera corta (20ms) para no bloquear el ciclo del PLC de 100ms
+    if not port_lock.acquire(timeout=0.02):
+        return  # Saltar ciclo: el bus está ocupado por otro poller Modbus
+
     try:
         # Log detallado de la petición a la DAQ
         logger.info(f"→ Enviando peticion Modbus RTU: read_input_registers(addr={_READ_START_ADDR}, count={_READ_COUNT}, slave={DAQ_SLAVE_ID})")
@@ -159,6 +165,8 @@ def _leer_daq_hardware():
     except Exception as e:
         logger.error(f"Excepción leyendo DAQ: {e}")
         mark_disconnected()
+    finally:
+        port_lock.release()
 
 
 # ─── Conversión Raw → mA (fórmulas exactas del PLC VP-25W6) ─────────────
@@ -472,7 +480,7 @@ def p02_entradas():
         V.r_PDT_03 = _hll_FT_04.execute(_scl_FT_04.r_Out, 0.0, 1000.0)
 
     # Presión de Aceite (PT_02 / P_Oil) — omitir si HART FIT-02 está activo
-    if not V.b_habilitar_F_HART:
+    if not V.b_habilitar_F_HART and "r_P_Oil" not in V.instrument_overrides:
         _scl_DP_01.execute(V.r_Local_4_I_Ch1Data,
                            V.r_SCL_DP_01_InRawMin, V.r_SCL_DP_01_InRawMax,
                            V.r_SCL_DP_01_InEUMin, V.r_SCL_DP_01_InEUMax)

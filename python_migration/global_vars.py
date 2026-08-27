@@ -457,10 +457,10 @@ class GlobalVars:
         self.r_k_cd = 0.0
         self.r_AK_L = 0.0
         self.r_BK_L = 0.0
-        self.r_CK_L = 0.0
-        self.r_d_L = 0.0           # Diámetro tubos laminar (m)
-        self.r_N_Tubos = 0.0       # Número de tubos
-        self.r_L = 0.0             # Longitud de tubos (m)
+        self.r_CK_L = 1.0
+        self.r_d_L = 0.004         # Diámetro tubos laminar (m = 4mm)
+        self.r_N_Tubos = 19.0      # Número de tubos
+        self.r_L = 0.3             # Longitud de tubos (m = 300mm)
         self.r_Q_Mezcla_L = 0.0
         self.r_Q_Liquido_L = 0.0
         self.r_Qb_Liquido_L = 0.0
@@ -477,8 +477,8 @@ class GlobalVars:
         self.d_Qb_Mezcla_L = 0
 
         # Wedge
-        self.r_m = 0.0             # Relación cuña
-        self.r_D_Wedge = 0.0       # Diámetro wedge (mm)
+        self.r_m = 0.3             # Relación cuña
+        self.r_D_Wedge = 24.3      # Diámetro wedge (mm)
         self.r_D_Wedge1 = 0.0
         self.r_z = 0.0
         self.r_fi = 0.0
@@ -703,6 +703,8 @@ class GlobalVars:
         self.i_Numero_Prueba = 1
         self.i_Ultima_Prueba = 1
         self.i_duracion_prueba_horas = 0
+        self.i_posicion_combo_box_1 = 0   # Índice selector método de producción
+        self.i_posicion_combo_box_2 = 0   # Índice selector inyección de diluente
         self.i_ESTATUS = 0
         
         for i in range(6):

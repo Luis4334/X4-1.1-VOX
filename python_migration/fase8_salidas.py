@@ -180,11 +180,19 @@ def p09_salidas():
     # ── 2. Escribir en hardware físico vía Modbus RTU ─────────────────────
     client = get_client()
     if client is not None:
-        ok_analog  = _escribir_salidas_analogicas(client)
-        ok_digital = _escribir_salidas_digitales(client)
-
-        if not (ok_analog and ok_digital):
-            mark_disconnected()
+        from modbus_daq import get_lock
+        port_lock = get_lock()
+        if port_lock.acquire(timeout=0.02):
+            try:
+                ok_analog  = _escribir_salidas_analogicas(client)
+                ok_digital = _escribir_salidas_digitales(client)
+        
+                if not (ok_analog and ok_digital):
+                    mark_disconnected()
+            finally:
+                port_lock.release()
+        else:
+            logger.debug("DAQ bus ocupado (timeout lock) — saltando ciclo de escritura")
     else:
         # Sin conexión: V.b_Error_DAQ ya está en True (gestionado por modbus_daq)
         logger.debug("DAQ no disponible — salidas físicas no actualizadas")

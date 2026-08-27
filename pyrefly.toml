@@ -1,0 +1,25 @@
+search-path = [
+  "python_migration",
+  "."
+]
+
+project-excludes = [
+  "**/*"
+]
+
+[errors]
+missing-import = "ignore"
+missing-source = "ignore"
+untyped-import = "ignore"
+bad-assignment = "ignore"
+bad-argument = "ignore"
+missing-attribute = "ignore"
+none-attribute = "ignore"
+none-subscript = "ignore"
+none-setitem = "ignore"
+invalid-operation = "ignore"
+unnecessary-call = "ignore"
+missing-type-stubs = "ignore"
+redundant-cast = "ignore"
+unbound-name = "ignore"
+type-mismatch = "ignore"

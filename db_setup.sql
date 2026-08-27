@@ -166,3 +166,36 @@ INSERT INTO `hart_channel_config` (channel_idx, v_name, description, hart_device
 (13, 'HART_CH13', 'Instrumento HART 14', 14, 14, 0),
 (14, 'HART_CH14', 'Instrumento HART 15', 15, 15, 0);
 
+-- ============================================================
+-- Table: pvt_balance_config
+-- Stores PVT and Mass Balance entered values and mode
+-- ============================================================
+DROP TABLE IF EXISTS `pvt_balance_config`;
+CREATE TABLE `pvt_balance_config` (
+    `id`             INT PRIMARY KEY DEFAULT 1,
+    `pvt_mode`       INT DEFAULT 0,
+    `temp_yac`       FLOAT DEFAULT 0.0,
+    `rso`            FLOAT DEFAULT 0.0,
+    `bo`             FLOAT DEFAULT 1.0,
+    `api_form_real`  FLOAT DEFAULT 0.0,
+    `api_form_teo`   FLOAT DEFAULT 0.0,
+    `api_mez_real`   FLOAT DEFAULT 0.0,
+    `api_mez_teo`    FLOAT DEFAULT 0.0,
+    `api_dil_real`   FLOAT DEFAULT 0.0,
+    `api_dil_teo`    FLOAT DEFAULT 0.0,
+    `q_dil_real`     FLOAT DEFAULT 0.0,
+    `q_dil_teo`      FLOAT DEFAULT 0.0,
+    `q_net_real`     FLOAT DEFAULT 0.0,
+    `q_net_teo`      FLOAT DEFAULT 0.0,
+    `q_net_dil_real` FLOAT DEFAULT 0.0,
+    `q_net_dil_teo`  FLOAT DEFAULT 0.0,
+    `q_agua_real`    FLOAT DEFAULT 0.0,
+    `q_agua_teo`     FLOAT DEFAULT 0.0,
+    `q_total_real`   FLOAT DEFAULT 0.0,
+    `q_total_teo`    FLOAT DEFAULT 0.0,
+    `updated_at`     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO `pvt_balance_config` (`id`, `pvt_mode`, `bo`) VALUES (1, 0, 1.0)
+ON DUPLICATE KEY UPDATE `id` = 1;
+
